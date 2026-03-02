@@ -9,6 +9,8 @@ on:
         type: boolean
         default: true
 
+run-name: Sync Google Assistant branches (${{ github.actor }})
+
 permissions:
   contents: write
   pull-requests: read
