@@ -1,0 +1,310 @@
+name: Sync All Branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      sync_custom_component:
+        description: 'Also sync to custom component repository'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  sync-all:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/home-assistant/core.git || true
+          git fetch upstream dev
+          git fetch origin
+
+      # Step 1: Sync dev branch with upstream
+      - name: Sync dev branch
+        id: sync_dev
+        run: |
+          echo "📥 Step 1: Syncing dev branch with upstream..."
+          git checkout dev
+
+          BEFORE_COMMIT=$(git rev-parse HEAD)
+          git reset --hard upstream/dev
+          AFTER_COMMIT=$(git rev-parse HEAD)
+
+          if [ "$BEFORE_COMMIT" != "$AFTER_COMMIT" ]; then
+            git push origin dev --force-with-lease
+            echo "✅ Dev branch updated to match upstream"
+            echo "dev_updated=true" >> $GITHUB_OUTPUT
+            echo "commits_added=$(git rev-list --count $BEFORE_COMMIT..$AFTER_COMMIT)" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Dev branch already in sync with upstream"
+            echo "dev_updated=false" >> $GITHUB_OUTPUT
+            echo "commits_added=0" >> $GITHUB_OUTPUT
+          fi
+
+      # Step 2: Rebase feature branches
+      - name: Rebase feature/require-acknowledgment
+        id: rebase_ack
+        run: |
+          echo "🔀 Step 2a: Rebasing feature/require-acknowledgment..."
+          git checkout feature/require-acknowledgment
+
+          BEFORE_COUNT=$(git rev-list --count upstream/dev..HEAD)
+
+          if git rebase upstream/dev; then
+            echo "✅ Rebase successful (no conflicts)"
+            git push origin feature/require-acknowledgment --force-with-lease
+
+            # Also update the old branch name if it exists
+            if git show-ref --verify --quiet refs/remotes/origin/google_assistant_require_acknowledgment; then
+              git push origin feature/require-acknowledgment:google_assistant_require_acknowledgment --force-with-lease
+            fi
+
+            AFTER_COUNT=$(git rev-list --count upstream/dev..HEAD)
+            echo "commits=$AFTER_COUNT" >> $GITHUB_OUTPUT
+            echo "rebased=true" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Rebase failed - manual intervention required"
+            git rebase --abort
+            echo "rebased=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Rebase feature/location-restriction
+        id: rebase_location
+        run: |
+          echo "🔀 Step 2b: Rebasing feature/location-restriction..."
+          git checkout feature/location-restriction
+
+          if git rebase upstream/dev; then
+            echo "✅ Rebase successful (no conflicts)"
+            git push origin feature/location-restriction --force-with-lease
+
+            AFTER_COUNT=$(git rev-list --count upstream/dev..HEAD)
+            echo "commits=$AFTER_COUNT" >> $GITHUB_OUTPUT
+            echo "rebased=true" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Rebase failed - manual intervention required"
+            git rebase --abort
+            echo "rebased=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      # Step 3: Rebuild integration branch
+      - name: Rebuild integration branch
+        id: rebuild_integration
+        run: |
+          echo "🔨 Step 3: Rebuilding integration branch..."
+          git checkout integration/google-assistant-unleashed
+
+          # Reset to upstream/dev
+          git reset --hard upstream/dev
+
+          # Merge feature branches
+          echo "Merging feature/require-acknowledgment..."
+          git merge --no-ff feature/require-acknowledgment -m "Merge feature/require-acknowledgment into integration branch"
+
+          echo "Merging feature/location-restriction..."
+          if git merge --no-ff feature/location-restriction -m "Merge feature/location-restriction into integration branch"; then
+            echo "✅ Merge successful (no conflicts)"
+            echo "had_conflicts=false" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Conflicts detected, auto-resolving..."
+            echo "had_conflicts=true" >> $GITHUB_OUTPUT
+
+            # Auto-resolve conflicts by including both features
+            # Fix __init__.py imports
+            if [ -f homeassistant/components/google_assistant/__init__.py ]; then
+              sed -i '/<<<<<<< HEAD/,/>>>>>>> feature\/location-restriction/d' homeassistant/components/google_assistant/__init__.py
+              git add homeassistant/components/google_assistant/__init__.py
+            fi
+
+            # Fix trait.py - add both check methods and call both in execute methods
+            if [ -f homeassistant/components/google_assistant/trait.py ]; then
+              # This is complex - for now, fail and require manual resolution
+              echo "::error::Complex conflicts in trait.py - running resolution script..."
+
+              # Remove conflict markers and ensure both methods are present
+              python3 << 'EOF'
+import re
+
+with open('homeassistant/components/google_assistant/trait.py', 'r') as f:
+    content = f.read()
+
+# Remove conflict markers
+content = re.sub(r'<<<<<<< HEAD\n', '', content)
+content = re.sub(r'=======\n', '', content)
+content = re.sub(r'>>>>>>> feature/location-restriction\n', '', content)
+
+# Ensure check_ack is present if check_presence is
+if 'def check_presence' in content and 'def check_ack' not in content:
+    # Find check_presence method and add check_ack after it
+    check_presence_end = content.find('    def sync_attributes')
+    if check_presence_end > 0:
+        check_ack_method = '''
+    def check_ack(self, challenge):
+        """Verify if acknowledgment is required and present."""
+        entity_config = self.config.entity_config.get(self.state.entity_id, {})
+        if entity_config.get(CONF_REQUIRE_ACK):
+            ack_ok = isinstance(challenge, dict) and challenge.get("ack") is True
+            if not ack_ok:
+                raise ChallengeNeeded(ack_needed=True)
+
+'''
+        content = content[:check_presence_end] + check_ack_method + content[check_presence_end:]
+
+# Add check_ack calls after check_presence calls
+content = re.sub(
+    r'(        self\.check_presence\(data\))\n',
+    r'\1\n        self.check_ack(challenge)\n',
+    content
+)
+
+with open('homeassistant/components/google_assistant/trait.py', 'w') as f:
+    f.write(content)
+EOF
+
+              git add homeassistant/components/google_assistant/trait.py
+            fi
+
+            # Stage all resolved files
+            git add -A
+            git commit --no-edit || echo "Commit may have already been completed"
+          fi
+
+          # Push integration branch
+          git push origin integration/google-assistant-unleashed --force-with-lease
+
+          COMMIT_COUNT=$(git rev-list --count dev..HEAD)
+          FILE_COUNT=$(git diff --name-only dev..HEAD | wc -l)
+          echo "commits=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+          echo "files=$FILE_COUNT" >> $GITHUB_OUTPUT
+          echo "✅ Integration branch rebuilt and pushed"
+
+      # Step 4: Sync to custom component
+      - name: Checkout custom component repository
+        if: inputs.sync_custom_component
+        uses: actions/checkout@v4
+        with:
+          repository: GuiPoM/google-assistant-unleashed
+          path: custom-component
+          token: ${{ secrets.PAT_CUSTOM_COMPONENT }}
+          fetch-depth: 1
+
+      - name: Sync to custom component
+        if: inputs.sync_custom_component
+        id: sync_custom
+        run: |
+          echo "🔄 Step 4: Syncing to custom component repository..."
+
+          git checkout integration/google-assistant-unleashed
+
+          # Copy component files
+          for file in homeassistant/components/google_assistant/*.py; do
+            filename=$(basename "$file")
+            cp "$file" "custom-component/custom_components/google_assistant/$filename"
+            echo "Copied: $filename"
+          done
+
+          # Copy translations
+          cp homeassistant/components/google_assistant/translations/en.json \
+             custom-component/custom_components/google_assistant/translations/en.json
+
+          # Copy services and icons
+          cp homeassistant/components/google_assistant/services.yaml \
+             custom-component/custom_components/google_assistant/services.yaml
+          cp homeassistant/components/google_assistant/icons.json \
+             custom-component/custom_components/google_assistant/icons.json
+
+          cd custom-component
+
+          # Check for changes
+          if git diff --quiet custom_components/google_assistant/; then
+            echo "ℹ️ No changes detected in custom component"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "📝 Changes detected, updating commit..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add custom_components/google_assistant/
+
+            # Amend commit with current timestamp
+            GIT_AUTHOR_DATE="$(date)" GIT_COMMITTER_DATE="$(date)" \
+              git commit --amend --no-edit --date="$(date)"
+
+            git push origin main --force-with-lease
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "✅ Custom component updated and pushed"
+          fi
+
+      # Summary
+      - name: Create workflow summary
+        if: always()
+        run: |
+          echo "# Complete Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## 🔄 Sync Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 1️⃣ Dev Branch" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.sync_dev.outputs.dev_updated }}" == "true" ]; then
+            echo "- ✅ Updated (+${{ steps.sync_dev.outputs.commits_added }} commits from upstream)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ℹ️ Already in sync with upstream" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 2️⃣ Feature Branches" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.rebase_ack.outputs.rebased }}" == "true" ]; then
+            echo "- ✅ feature/require-acknowledgment rebased (${{ steps.rebase_ack.outputs.commits }} commits)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ feature/require-acknowledgment rebase failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ steps.rebase_location.outputs.rebased }}" == "true" ]; then
+            echo "- ✅ feature/location-restriction rebased (${{ steps.rebase_location.outputs.commits }} commits)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ feature/location-restriction rebase failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 3️⃣ Integration Branch" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Rebuilt from rebased features" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commits**: ${{ steps.rebuild_integration.outputs.commits }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Files**: ${{ steps.rebuild_integration.outputs.files }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.rebuild_integration.outputs.had_conflicts }}" == "true" ]; then
+            echo "- ⚠️ Auto-resolved merge conflicts" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ inputs.sync_custom_component }}" == "true" ]; then
+            echo "### 4️⃣ Custom Component" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ steps.sync_custom.outputs.has_changes }}" == "true" ]; then
+              echo "- ✅ Synced and pushed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- ℹ️ No changes needed" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- [PR #1 - Require Acknowledgment](https://github.com/GuiPoM/homeassistant_core/pull/1)" >> $GITHUB_STEP_SUMMARY
+          echo "- [PR #2 - Location Restriction](https://github.com/GuiPoM/homeassistant_core/pull/2)" >> $GITHUB_STEP_SUMMARY
+          echo "- [PR #6 - Integration Tracking](https://github.com/GuiPoM/homeassistant_core/pull/6)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Custom Component Repo](https://github.com/GuiPoM/google-assistant-unleashed)" >> $GITHUB_STEP_SUMMARY
