@@ -2,7 +2,7 @@
 
 ## One-Command Sync
 
-**GitHub Actions UI**: https://github.com/GuiPoM/homeassistant_core/actions/workflows/sync-all-branches.yml
+**GitHub Actions UI**: https://github.com/GuiPoM/homeassistant_core/actions/workflows/sync-google-assistant-branches.yml
 
 Click "Run workflow" → "Run workflow" → Done ✅
 
