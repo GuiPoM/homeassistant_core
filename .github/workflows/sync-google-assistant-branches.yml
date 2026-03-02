@@ -1,4 +1,4 @@
-name: Sync All Branches
+name: Sync Google Assistant Branches
 
 on:
   workflow_dispatch:

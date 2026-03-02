@@ -4,7 +4,7 @@ This document explains the automated workflow that keeps all branches synchroniz
 
 ## Overview
 
-The `sync-all-branches.yml` workflow automates the complete sync pipeline:
+The `sync-google-assistant-branches.yml` workflow automates the complete sync pipeline:
 
 ```
 upstream/dev (Home Assistant)
@@ -48,7 +48,7 @@ google-assistant-unleashed (custom component)
 
 ### Via GitHub Actions UI
 
-1. Go to: https://github.com/GuiPoM/homeassistant_core/actions/workflows/sync-all-branches.yml
+1. Go to: https://github.com/GuiPoM/homeassistant_core/actions/workflows/sync-google-assistant-branches.yml
 2. Click "Run workflow"
 3. Options:
    - **Sync to custom component**: ✅ (default: yes)
