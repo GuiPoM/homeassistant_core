@@ -68,7 +68,9 @@ from homeassistant.const import (
     SERVICE_ALARM_TRIGGER,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
+    STATE_HOME,
     STATE_IDLE,
+    STATE_NOT_HOME,
     STATE_OFF,
     STATE_ON,
     STATE_PAUSED,
@@ -106,6 +108,7 @@ from .const import (
     FAN_SPEEDS,
 )
 from .error import ChallengeNeeded, SmartHomeError
+from .helpers import RequestData
 
 _LOGGER = logging.getLogger(__name__)
 
