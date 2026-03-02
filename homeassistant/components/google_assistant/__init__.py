@@ -19,6 +19,7 @@ from .const import (  # noqa: F401
     CONF_PRIVATE_KEY,
     CONF_PROJECT_ID,
     CONF_REPORT_STATE,
+    CONF_REQUIRE_ACK,
     CONF_ROOM_HINT,
     CONF_SECURE_DEVICES_PIN,
     CONF_SERVICE_ACCOUNT,
@@ -46,6 +47,7 @@ ENTITY_SCHEMA = probatio.Schema(
             probatio.EnsureList(), [cv.string]
         ),
         probatio.Optional(CONF_ROOM_HINT): cv.string,
+        probatio.Optional(CONF_REQUIRE_ACK, default=False): cv.boolean,
     }
 )
 
