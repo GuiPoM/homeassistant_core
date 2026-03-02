@@ -91,6 +91,8 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .const import (
     CHALLENGE_FAILED_PIN_NEEDED,
     CHALLENGE_PIN_NEEDED,
+    CONF_PRESENCE_ENTITY,
+    CONF_REQUIRE_PRESENCE,
     ERR_ALREADY_ARMED,
     ERR_ALREADY_DISARMED,
     ERR_ALREADY_STOPPED,
@@ -98,6 +100,7 @@ from .const import (
     ERR_FUNCTION_NOT_SUPPORTED,
     ERR_NO_AVAILABLE_CHANNEL,
     ERR_NOT_SUPPORTED,
+    ERR_PRESENCE_REQUIRED,
     ERR_UNSUPPORTED_INPUT,
     ERR_VALUE_OUT_OF_RANGE,
     FAN_SPEEDS,
@@ -291,11 +294,8 @@ class _Trait(ABC):
         self.state = state
         self.config = config
 
-    def check_presence(self, data):
+    def check_presence(self, data: RequestData) -> None:
         """Verify if presence is required and user is present."""
-        from .const import CONF_PRESENCE_ENTITY, CONF_REQUIRE_PRESENCE, ERR_PRESENCE_REQUIRED
-        from .error import SmartHomeError
-
         entity_config = self.config.entity_config.get(self.state.entity_id, {})
 
         # Check if presence is required for this entity
@@ -319,11 +319,22 @@ class _Trait(ABC):
             # Presence entity not found, fail-open
             return
 
-        # Reject if presence entity is off
-        if presence_state.state == STATE_OFF:
+        # Check if user is away
+        # For binary sensors and input booleans, check if state is "off"
+        # For device trackers and person entities, check for "not_home" or any non-"home" state
+        is_away = (
+            presence_state.state == STATE_OFF
+            or presence_state.state == STATE_NOT_HOME
+            or (
+                presence_state.domain in ("device_tracker", "person")
+                and presence_state.state != STATE_HOME
+            )
+        )
+
+        if is_away:
             raise SmartHomeError(
                 ERR_PRESENCE_REQUIRED,
-                "This device can only be controlled when you are present at home"
+                "This device can only be controlled when you are present at home",
             )
 
     def sync_attributes(self) -> dict[str, Any]:
@@ -389,8 +400,6 @@ class BrightnessTrait(_Trait):
 
     async def execute(self, command, data, params, challenge):
         """Execute a brightness command."""
-        self.check_presence(data)
-
         self.check_presence(data)
 
         if self.state.domain == light.DOMAIN:
