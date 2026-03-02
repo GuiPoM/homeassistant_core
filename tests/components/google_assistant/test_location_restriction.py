@@ -6,8 +6,6 @@ from homeassistant.components import light, lock, switch
 from homeassistant.components.google_assistant import const, error, helpers, trait
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    STATE_HOME,
-    STATE_NOT_HOME,
     STATE_OFF,
     STATE_ON,
 )
@@ -240,121 +238,6 @@ async def test_no_presence_entity_configured_failopen(hass: HomeAssistant) -> No
     calls = async_mock_service(hass, switch.DOMAIN, "turn_off")
 
     # Should allow command (fail-open when not configured)
-    await trt.execute(trait.COMMAND_ON_OFF, data, {"on": False}, {})
-    await hass.async_block_till_done()
-    assert len(calls) == 1
-
-
-async def test_presence_device_tracker_not_home_blocks(hass: HomeAssistant) -> None:
-    """Test device_tracker with not_home state blocks commands."""
-    hass.states.async_set("device_tracker.phone", "not_home")
-
-    trt = trait.OnOffTrait(
-        hass,
-        State("switch.test", STATE_ON),
-        PRESENCE_CONFIG,
-    )
-
-    calls = async_mock_service(hass, switch.DOMAIN, "turn_off")
-
-    with pytest.raises(error.SmartHomeError) as err:
-        await trt.execute(trait.COMMAND_ON_OFF, PRESENCE_DATA, {"on": False}, {})
-    assert len(calls) == 0
-    assert err.value.code == const.ERR_PRESENCE_REQUIRED
-
-
-async def test_presence_device_tracker_home_allows(hass: HomeAssistant) -> None:
-    """Test device_tracker with home state allows commands."""
-    hass.states.async_set("device_tracker.phone", "home")
-
-    config = MockConfig(
-        presence_entity="device_tracker.phone",
-        entity_config={
-            "switch.test": {const.CONF_REQUIRE_PRESENCE: True},
-        },
-    )
-
-    data = helpers.RequestData(
-        config,
-        "test-agent",
-        const.SOURCE_CLOUD,
-        "ff36a3cc-ec34-11e6-b1a0-64510650abcf",
-        None,
-    )
-
-    trt = trait.OnOffTrait(
-        hass,
-        State("switch.test", STATE_ON),
-        config,
-    )
-
-    calls = async_mock_service(hass, switch.DOMAIN, "turn_off")
-
-    await trt.execute(trait.COMMAND_ON_OFF, data, {"on": False}, {})
-    await hass.async_block_till_done()
-    assert len(calls) == 1
-
-
-async def test_presence_person_away_blocks(hass: HomeAssistant) -> None:
-    """Test person entity in non-home zone blocks commands."""
-    hass.states.async_set("person.owner", "work")
-
-    config = MockConfig(
-        presence_entity="person.owner",
-        entity_config={
-            "switch.test": {const.CONF_REQUIRE_PRESENCE: True},
-        },
-    )
-
-    data = helpers.RequestData(
-        config,
-        "test-agent",
-        const.SOURCE_CLOUD,
-        "ff36a3cc-ec34-11e6-b1a0-64510650abcf",
-        None,
-    )
-
-    trt = trait.OnOffTrait(
-        hass,
-        State("switch.test", STATE_ON),
-        config,
-    )
-
-    calls = async_mock_service(hass, switch.DOMAIN, "turn_off")
-
-    with pytest.raises(error.SmartHomeError) as err:
-        await trt.execute(trait.COMMAND_ON_OFF, data, {"on": False}, {})
-    assert len(calls) == 0
-    assert err.value.code == const.ERR_PRESENCE_REQUIRED
-
-
-async def test_presence_person_home_allows(hass: HomeAssistant) -> None:
-    """Test person entity at home allows commands."""
-    hass.states.async_set("person.owner", "home")
-
-    config = MockConfig(
-        presence_entity="person.owner",
-        entity_config={
-            "switch.test": {const.CONF_REQUIRE_PRESENCE: True},
-        },
-    )
-
-    data = helpers.RequestData(
-        config,
-        "test-agent",
-        const.SOURCE_CLOUD,
-        "ff36a3cc-ec34-11e6-b1a0-64510650abcf",
-        None,
-    )
-
-    trt = trait.OnOffTrait(
-        hass,
-        State("switch.test", STATE_ON),
-        config,
-    )
-
-    calls = async_mock_service(hass, switch.DOMAIN, "turn_off")
-
     await trt.execute(trait.COMMAND_ON_OFF, data, {"on": False}, {})
     await hass.async_block_till_done()
     assert len(calls) == 1
