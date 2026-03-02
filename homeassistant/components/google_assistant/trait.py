@@ -323,16 +323,8 @@ class _Trait(ABC):
             return
 
         # Check if user is away
-        # For binary sensors and input booleans, check if state is "off"
-        # For device trackers and person entities, check for "not_home" or any non-"home" state
-        is_away = (
-            presence_state.state == STATE_OFF
-            or presence_state.state == STATE_NOT_HOME
-            or (
-                presence_state.domain in ("device_tracker", "person")
-                and presence_state.state != STATE_HOME
-            )
-        )
+        # Support input_boolean and binary_sensor - check if state is "off"
+        is_away = presence_state.state == STATE_OFF
 
         if is_away:
             raise SmartHomeError(
