@@ -1,0 +1,237 @@
+name: Sync Integration Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      sync_custom_component:
+        description: 'Also sync to custom component repository'
+        required: false
+        type: boolean
+        default: true
+      force_push:
+        description: 'Force push integration branch (required after rebase)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  sync-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: integration/google-assistant-unleashed
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/home-assistant/core.git || true
+          git fetch upstream dev
+
+      - name: Update fork's dev branch
+        run: |
+          echo "📥 Updating fork's dev branch..."
+          git fetch origin dev
+          git checkout dev
+
+          if ! git merge-base --is-ancestor upstream/dev HEAD; then
+            echo "Merging upstream/dev into dev..."
+            git merge upstream/dev --no-edit
+            git push origin dev
+            echo "✅ Fork's dev branch updated"
+          else
+            echo "✅ Fork's dev branch already up to date"
+          fi
+
+      - name: Rebase integration branch
+        id: rebase
+        run: |
+          echo "🔀 Rebasing integration branch on upstream/dev..."
+          git checkout integration/google-assistant-unleashed
+
+          # Save the last good commit before rebase
+          LAST_GOOD_COMMIT=$(git rev-parse HEAD)
+          echo "last_good_commit=$LAST_GOOD_COMMIT" >> $GITHUB_OUTPUT
+          echo "Last good commit: $LAST_GOOD_COMMIT"
+
+          # Check if rebase is needed
+          BEHIND_COUNT=$(git rev-list --count HEAD..upstream/dev)
+          echo "behind_count=$BEHIND_COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$BEHIND_COUNT" -eq 0 ]; then
+            echo "✅ Integration branch already up to date"
+            echo "rebase_needed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Behind upstream by $BEHIND_COUNT commits, rebasing..."
+          echo "rebase_needed=true" >> $GITHUB_OUTPUT
+
+          # Attempt rebase
+          if git rebase upstream/dev; then
+            echo "✅ Rebase successful (no conflicts)"
+            echo "had_conflicts=false" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Conflicts detected during rebase"
+            echo "had_conflicts=true" >> $GITHUB_OUTPUT
+
+            # Resolve conflicts using already-merged versions
+            for file in $(git diff --name-only --diff-filter=U); do
+              if git show "$LAST_GOOD_COMMIT:$file" > "$file" 2>/dev/null; then
+                git add "$file"
+                echo "Resolved: $file"
+              else
+                echo "::error::Could not auto-resolve: $file"
+                git rebase --abort
+                exit 1
+              fi
+            done
+
+            # Continue rebase
+            if git rebase --continue; then
+              echo "✅ Rebase completed with conflict resolution"
+            else
+              echo "::error::Rebase failed after conflict resolution"
+              exit 1
+            fi
+          fi
+
+      - name: Verify clean state
+        id: verify
+        run: |
+          echo "🔍 Verifying integration branch state..."
+          COMMIT_COUNT=$(git log --oneline dev..HEAD | wc -l)
+          FILE_COUNT=$(git diff --name-only dev..HEAD | wc -l)
+
+          echo "commit_count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+
+          echo "Commits ahead of dev: $COMMIT_COUNT"
+          echo "Files changed: $FILE_COUNT"
+
+          if [ "$COMMIT_COUNT" -gt 20 ]; then
+            echo "::warning::More than 20 commits detected. Expected ~5 commits."
+          fi
+
+          if [ "$FILE_COUNT" -gt 30 ]; then
+            echo "::warning::More than 30 files changed. Expected ~15 files."
+          fi
+
+      - name: Push integration branch
+        if: inputs.force_push && steps.rebase.outputs.rebase_needed == 'true'
+        run: |
+          echo "📤 Pushing integration branch..."
+          git push origin integration/google-assistant-unleashed --force-with-lease
+
+      - name: Checkout custom component repository
+        if: inputs.sync_custom_component
+        uses: actions/checkout@v4
+        with:
+          repository: GuiPoM/google-assistant-unleashed
+          path: custom-component
+          token: ${{ secrets.PAT_CUSTOM_COMPONENT }}
+          fetch-depth: 1
+
+      - name: Sync to custom component
+        if: inputs.sync_custom_component
+        run: |
+          echo "🔄 Syncing to custom component repository..."
+
+          # Copy component files
+          for file in homeassistant/components/google_assistant/*.py; do
+            filename=$(basename "$file")
+            cp "$file" "custom-component/custom_components/google_assistant/$filename"
+            echo "Copied: $filename"
+          done
+
+          # Copy translations
+          cp homeassistant/components/google_assistant/translations/en.json \
+             custom-component/custom_components/google_assistant/translations/en.json
+
+          # Copy services and icons
+          cp homeassistant/components/google_assistant/services.yaml \
+             custom-component/custom_components/google_assistant/services.yaml
+          cp homeassistant/components/google_assistant/icons.json \
+             custom-component/custom_components/google_assistant/icons.json
+
+          cd custom-component
+
+          # Check for changes
+          if git diff --quiet custom_components/google_assistant/; then
+            echo "ℹ️ No changes detected in custom component"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "📝 Changes detected, updating commit..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add custom_components/google_assistant/
+
+            # Amend commit with current timestamp
+            GIT_AUTHOR_DATE="$(date)" GIT_COMMITTER_DATE="$(date)" \
+              git commit --amend --no-edit --date="$(date)"
+
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "✅ Custom component updated"
+          fi
+
+      - name: Push custom component
+        if: inputs.sync_custom_component && steps.verify.outputs.has_changes == 'true'
+        working-directory: custom-component
+        run: |
+          git push origin main --force-with-lease
+          echo "✅ Custom component pushed"
+
+      - name: Create workflow summary
+        if: always()
+        run: |
+          echo "# Integration Branch Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.rebase.outputs.rebase_needed }}" == "true" ]; then
+            echo "## ✅ Rebase Completed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- Behind upstream: ${{ steps.rebase.outputs.behind_count }} commits" >> $GITHUB_STEP_SUMMARY
+            echo "- Had conflicts: ${{ steps.rebase.outputs.had_conflicts }}" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ steps.rebase.outputs.had_conflicts }}" == "true" ]; then
+              echo "- ✅ Conflicts auto-resolved using pre-merged versions" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "## ℹ️ No Rebase Needed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Integration branch is already up to date with upstream." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Current State" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commits ahead of dev**: ${{ steps.verify.outputs.commit_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Files changed**: ${{ steps.verify.outputs.file_count }}" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ inputs.force_push }}" == "true" ] && [ "${{ steps.rebase.outputs.rebase_needed }}" == "true" ]; then
+            echo "- **Pushed**: ✅ Yes" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Pushed**: ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ inputs.sync_custom_component }}" == "true" ]; then
+            echo "- **Custom component synced**: ✅ Yes" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Custom component synced**: ⏭️ Skipped" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Verify tracking PR: [Pull Requests](https://github.com/GuiPoM/homeassistant_core/pulls)" >> $GITHUB_STEP_SUMMARY
+          echo "2. Check custom component: [google-assistant-unleashed](https://github.com/GuiPoM/google-assistant-unleashed)" >> $GITHUB_STEP_SUMMARY
