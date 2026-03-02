@@ -29,7 +29,7 @@ The automated sync workflow requires a Personal Access Token (PAT) to push to yo
 ### Step 3: Verify Workflow is Available
 
 1. Go to: https://github.com/GuiPoM/homeassistant_core/actions
-2. You should see "Sync All Branches" in the left sidebar
+2. You should see "Sync Google Assistant Branches" in the left sidebar
 3. Click on it to see the workflow
 
 ✅ **Setup Complete!**
@@ -38,7 +38,7 @@ The automated sync workflow requires a Personal Access Token (PAT) to push to yo
 
 ### Running the Workflow
 
-1. Go to: https://github.com/GuiPoM/homeassistant_core/actions/workflows/sync-all-branches.yml
+1. Go to: https://github.com/GuiPoM/homeassistant_core/actions/workflows/sync-google-assistant-branches.yml
 2. Click the "Run workflow" dropdown button (top right)
 3. Configure options:
    - **Branch**: Leave as default (`dev`)
@@ -135,7 +135,7 @@ After successful sync:
 
 **Fix**:
 1. Ensure workflow file exists in `dev` branch (default branch)
-2. Check YAML syntax: `yamllint .github/workflows/sync-all-branches.yml`
+2. Check YAML syntax: `yamllint .github/workflows/sync-google-assistant-branches.yml`
 3. Wait a few minutes for GitHub to index the workflow
 4. Refresh the Actions page
 
@@ -188,7 +188,7 @@ Run the workflow:
 
 ### Run Workflow
 ```
-https://github.com/GuiPoM/homeassistant_core/actions/workflows/sync-all-branches.yml
+https://github.com/GuiPoM/homeassistant_core/actions/workflows/sync-google-assistant-branches.yml
 → "Run workflow" → "Run workflow"
 ```
 
