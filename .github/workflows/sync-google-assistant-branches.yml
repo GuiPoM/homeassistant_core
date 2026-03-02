@@ -1,5 +1,7 @@
 name: Sync Google Assistant Branches
 
+# Automated workflow to keep all Google Assistant branches synchronized with upstream
+
 on:
   workflow_dispatch:
     inputs:
