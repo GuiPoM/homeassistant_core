@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import logging
-from typing import Any, override
+from typing import Any, TYPE_CHECKING, override
 
 from homeassistant.components import (
     binary_sensor,
@@ -157,7 +157,9 @@ from .const import (
     FAN_SPEEDS,
 )
 from .error import ChallengeNeeded, SmartHomeError
-from .helpers import RequestData
+
+if TYPE_CHECKING:
+    from .helpers import RequestData
 
 _LOGGER = logging.getLogger(__name__)
 
