@@ -139,7 +139,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     CHALLENGE_FAILED_PIN_NEEDED,
-    CHALLENGE_PIN_NEEDED,
+    CONF_REQUIRE_ACK,
     ERR_ALREADY_ARMED,
     ERR_ALREADY_DISARMED,
     ERR_ALREADY_STOPPED,
@@ -340,6 +340,14 @@ class _Trait(ABC):
         self.state = state
         self.config = config
 
+    def check_ack(self, challenge):
+        """Verify if acknowledgment is required and present."""
+        entity_config = self.config.entity_config.get(self.state.entity_id, {})
+        if entity_config.get(CONF_REQUIRE_ACK):
+            ack_ok = isinstance(challenge, dict) and challenge.get("ack") is True
+            if not ack_ok:
+                raise ChallengeNeeded(ack_needed=True)
+
     def sync_attributes(self) -> dict[str, Any]:
         """Return attributes for a sync request."""
         raise NotImplementedError
@@ -407,6 +415,9 @@ class BrightnessTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a brightness command."""
+
+        self.check_ack(challenge)
+
         if self.state.domain == LIGHT_DOMAIN:
             await self.hass.services.async_call(
                 LIGHT_DOMAIN,
@@ -576,6 +587,9 @@ class OnOffTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute an OnOff command."""
+
+        self.check_ack(challenge)
+
         if (domain := self.state.domain) == GROUP_DOMAIN:
             service_domain = HOMEASSISTANT_DOMAIN
             service = SERVICE_TURN_ON if params["on"] else SERVICE_TURN_OFF
@@ -682,6 +696,9 @@ class ColorSettingTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a color temperature command."""
+
+        self.check_ack(challenge)
+
         if "temperature" in params["color"]:
             temp = params["color"]["temperature"]
             max_temp = self.state.attributes[
@@ -776,6 +793,9 @@ class SceneTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a scene command."""
+
+        self.check_ack(challenge)
+
         service = SERVICE_TURN_ON
         if self.state.domain == BUTTON_DOMAIN:
             service = button.SERVICE_PRESS
@@ -829,6 +849,9 @@ class DockTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a dock command."""
+
+        self.check_ack(challenge)
+
         domain = self.state.domain
         service: str | None = None
 
@@ -876,6 +899,9 @@ class LocatorTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a locate command."""
+
+        self.check_ack(challenge)
+
         if params.get("silence", False):
             raise SmartHomeError(
                 ERR_FUNCTION_NOT_SUPPORTED,
@@ -1003,6 +1029,9 @@ class StartStopTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a StartStop command."""
+
+        self.check_ack(challenge)
+
         domain = self.state.domain
         if domain == VACUUM_DOMAIN:
             await self._execute_vacuum(command, data, params, challenge)
@@ -1260,6 +1289,9 @@ class TemperatureControlTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a temperature point or mode command."""
+
+        self.check_ack(challenge)
+
         # All sent in temperatures are always in Celsius
         domain = self.state.domain
         unit = self.hass.config.units.temperature_unit
@@ -1480,6 +1512,9 @@ class TemperatureSettingTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a temperature point or mode command."""
+
+        self.check_ack(challenge)
+
         # All sent in temperatures are always in Celsius
         unit = self.hass.config.units.temperature_unit
         min_temp = self.state.attributes[ClimateEntityCapabilityAttribute.MIN_TEMP]
@@ -1696,6 +1731,9 @@ class HumiditySettingTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a humidity command."""
+
+        self.check_ack(challenge)
+
         if self.state.domain == SENSOR_DOMAIN:
             raise SmartHomeError(
                 ERR_NOT_SUPPORTED, "Execute is not supported by sensor"
@@ -1753,6 +1791,9 @@ class LockUnlockTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute an LockUnlock command."""
+
+        self.check_ack(challenge)
+
         if params["lock"]:
             service = lock.SERVICE_LOCK
         else:
@@ -1865,6 +1906,9 @@ class ArmDisArmTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute an ArmDisarm command."""
+
+        self.check_ack(challenge)
+
         if params["arm"] and not params.get("cancel"):
             # If no arm level given, we we arm the first supported
             # level in state_to_support.
@@ -2091,6 +2135,9 @@ class FanSpeedTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a smart home command."""
+
+        self.check_ack(challenge)
+
         if command == COMMAND_SET_FAN_SPEED:
             await self.execute_fanspeed(data, params)
         elif command == COMMAND_REVERSE:
@@ -2245,6 +2292,9 @@ class ModesTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a SetModes command."""
+
+        self.check_ack(challenge)
+
         settings = params.get("updateModeSettings")
 
         if self.state.domain == FAN_DOMAIN:
@@ -2400,6 +2450,9 @@ class InputSelectorTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute an SetInputSource command."""
+
+        self.check_ack(challenge)
+
         sources = (
             self.state.attributes.get(
                 MediaPlayerEntityCapabilityAttribute.INPUT_SOURCE_LIST
@@ -2546,6 +2599,9 @@ class OpenCloseTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute an Open, close, Set position command."""
+
+        self.check_ack(challenge)
+
         domain = self.state.domain
         features = self.state.attributes.get(EntityStateAttribute.SUPPORTED_FEATURES, 0)
 
@@ -2734,6 +2790,9 @@ class VolumeTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a volume command."""
+
+        self.check_ack(challenge)
+
         if command == COMMAND_SET_VOLUME:
             await self._execute_set_volume(data, params)
         elif command == COMMAND_VOLUME_RELATIVE:
@@ -2752,10 +2811,13 @@ def _verify_pin_challenge(data, state, challenge):
         raise SmartHomeError(ERR_CHALLENGE_NOT_SETUP, "Challenge is not set up")
 
     if not challenge:
-        raise ChallengeNeeded(CHALLENGE_PIN_NEEDED)
+        raise ChallengeNeeded(pin_needed=True)
 
     if challenge.get("pin") != data.config.secure_devices_pin:
-        raise ChallengeNeeded(CHALLENGE_FAILED_PIN_NEEDED)
+        # Pass pin_needed=True and specify the challenge type for input error
+        raise ChallengeNeeded(
+            pin_needed=True, challenge_type=CHALLENGE_FAILED_PIN_NEEDED
+        )
 
 
 MEDIA_COMMAND_SUPPORT_MAPPING = {
@@ -2837,6 +2899,9 @@ class TransportControlTrait(_Trait):
     @override
     async def execute(self, command, data, params, challenge):
         """Execute a media command."""
+
+        self.check_ack(challenge)
+
         service_attrs = {ATTR_ENTITY_ID: self.state.entity_id}
 
         if command == COMMAND_MEDIA_SEEK_RELATIVE:
