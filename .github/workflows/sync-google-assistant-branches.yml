@@ -10,10 +10,6 @@ on:
         required: false
         type: boolean
         default: true
-  # Temporary schedule to force GitHub to index this workflow
-  # Will be removed once workflow is recognized
-  schedule:
-    - cron: '0 0 31 12 *'  # Dec 31 at midnight (once a year, basically never)
 
 run-name: Sync Google Assistant branches (${{ github.actor }})
 
