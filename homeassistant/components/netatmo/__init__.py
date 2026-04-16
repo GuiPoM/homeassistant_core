@@ -36,6 +36,9 @@ from homeassistant.helpers.typing import ConfigType
 from . import api
 from .const import (
     CONF_CLOUDHOOK_URL,
+    CONF_SIREN_EMAIL,
+    CONF_SIREN_PASSWORD,
+    CONF_SIREN_TOKEN,
     DATA_CAMERAS,
     DATA_DEVICE_IDS,
     DATA_EVENTS,
@@ -48,6 +51,7 @@ from .const import (
     WEBHOOK_PUSH_TYPE,
 )
 from .data_handler import NetatmoConfigEntry, NetatmoDataHandler
+from .web_auth import NetatmoWebSessionAuth
 from .webhook import async_handle_webhook
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,6 +112,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: NetatmoConfigEntry) -> b
     )
 
     data_handler = NetatmoDataHandler(hass, entry, auth)
+
+    # Initialize web session auth for siren control if token is stored
+    siren_token = entry.options.get(CONF_SIREN_TOKEN)
+    if siren_token:
+        data_handler.web_auth = NetatmoWebSessionAuth(
+            aiohttp_client.async_get_clientsession(hass),
+            token=siren_token,
+            email=entry.options.get(CONF_SIREN_EMAIL),
+            password=entry.options.get(CONF_SIREN_PASSWORD),
+        )
+        _LOGGER.debug("Netatmo web session auth initialized for siren control")
+
     entry.runtime_data = data_handler
     await data_handler.async_setup()
 

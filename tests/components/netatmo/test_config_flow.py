@@ -147,6 +147,14 @@ async def test_option_flow(hass: HomeAssistant) -> None:
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
 
     assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "siren_auth"
+
+    # Skip siren auth step (leave credentials empty)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={}
+    )
+
+    assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "public_weather_areas"
 
     result = await hass.config_entries.options.async_configure(
@@ -203,6 +211,14 @@ async def test_option_flow_wrong_coordinates(hass: HomeAssistant) -> None:
     config_entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "siren_auth"
+
+    # Skip siren auth step (leave credentials empty)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={}
+    )
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "public_weather_areas"

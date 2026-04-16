@@ -1,6 +1,7 @@
 """Support for Netatmo Smart thermostats."""
 # pylint: disable=home-assistant-use-runtime-data  # Uses legacy hass.data[DOMAIN] pattern
 
+from datetime import datetime, timezone
 import logging
 from typing import Any, cast
 
@@ -32,11 +33,18 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ATTR_ANTICIPATING,
+    ATTR_AWAY_TEMPERATURE,
     ATTR_END_DATETIME,
+    ATTR_FROST_GUARD_TEMPERATURE,
     ATTR_HEATING_POWER_REQUEST,
+    ATTR_OPEN_WINDOW,
     ATTR_SCHEDULE_NAME,
+    ATTR_SCHEDULED_TEMPERATURE,
+    ATTR_SCHEDULED_ZONE_NAME,
     ATTR_SELECTED_SCHEDULE,
     ATTR_SELECTED_SCHEDULE_ID,
+    ATTR_SETPOINT_END_TIME,
     ATTR_TARGET_TEMPERATURE,
     ATTR_TIME_PERIOD,
     DATA_SCHEDULES,
@@ -436,18 +444,87 @@ class NetatmoThermostat(NetatmoRoomEntity, ClimateEntity):
         self._attr_extra_state_attributes[ATTR_SELECTED_SCHEDULE_ID] = getattr(
             selected_schedule, "entity_id", None
         )
+        self._attr_extra_state_attributes[ATTR_SCHEDULED_TEMPERATURE] = (
+            self._get_scheduled_setpoint()
+        )
+        self._attr_extra_state_attributes[ATTR_SCHEDULED_ZONE_NAME] = (
+            self._get_scheduled_zone_name()
+        )
+        self._attr_extra_state_attributes[ATTR_AWAY_TEMPERATURE] = getattr(
+            selected_schedule, "away_temp", None
+        )
+        self._attr_extra_state_attributes[ATTR_FROST_GUARD_TEMPERATURE] = getattr(
+            selected_schedule, "hg_temp", None
+        )
+        self._attr_extra_state_attributes[ATTR_OPEN_WINDOW] = getattr(
+            self.device, "open_window", None
+        )
+        self._attr_extra_state_attributes[ATTR_ANTICIPATING] = getattr(
+            self.device, "anticipating", None
+        )
+
+        # setpoint_end_time — convert Unix timestamp to ISO datetime string
+        end_time = getattr(self.device, "therm_setpoint_end_time", None)
+        self._attr_extra_state_attributes[ATTR_SETPOINT_END_TIME] = (
+            dt_util.utc_from_timestamp(end_time).isoformat() if end_time else None
+        )
 
         if self.device_type == NA_VALVE:
             self._attr_extra_state_attributes[ATTR_HEATING_POWER_REQUEST] = (
                 self.device.heating_power_request
             )
         else:
+            # Also expose heating_power_request for NATherm1 rooms
+            if hasattr(self.device, "heating_power_request"):
+                self._attr_extra_state_attributes[ATTR_HEATING_POWER_REQUEST] = (
+                    self.device.heating_power_request
+                )
             for module in self.device.modules.values():
                 if hasattr(module, "boiler_status"):
                     module = cast(NATherm1, module)
                     if module.boiler_status is not None:
                         self._boilerstatus = module.boiler_status
                         break
+
+    def _get_scheduled_setpoint(self) -> float | None:
+        """Return the scheduled setpoint temperature for this room at the current time."""
+        zone = self._get_active_zone()
+        if zone is None:
+            return None
+        return next(
+            (
+                r.therm_setpoint_temperature
+                for r in zone.rooms
+                if r.entity_id == self.device.entity_id
+            ),
+            None,
+        )
+
+    def _get_scheduled_zone_name(self) -> str | None:
+        """Return the name of the active schedule zone (e.g. Confort, Eco, Nuit)."""
+        zone = self._get_active_zone()
+        return zone.name if zone is not None else None
+
+    def _get_active_zone(self):
+        """Return the currently active schedule zone."""
+        schedule = self.home.get_selected_schedule()
+        if schedule is None or not schedule.timetable:
+            return None
+
+        now = datetime.now(timezone.utc)
+        minute_of_week = now.weekday() * 1440 + now.hour * 60 + now.minute
+
+        active_zone_id = schedule.timetable[0].zone_id
+        for entry in schedule.timetable:
+            if entry.m_offset <= minute_of_week:
+                active_zone_id = entry.zone_id
+            else:
+                break
+
+        return next(
+            (z for z in schedule.zones if int(z.entity_id) == active_zone_id),
+            None,
+        )
 
     async def _async_service_set_schedule(self, **kwargs: Any) -> None:
         schedule_name = kwargs.get(ATTR_SCHEDULE_NAME)

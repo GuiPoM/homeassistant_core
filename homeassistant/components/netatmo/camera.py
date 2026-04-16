@@ -273,8 +273,28 @@ class NetatmoCamera(NetatmoModuleEntity, Camera):
             self._attr_is_streaming = self.device.monitoring
             self._attr_motion_detection_enabled = self.device.monitoring
 
+        # Sync light_state from polled floodlight value (fallback to webhook value)
+        if hasattr(self.device, "floodlight") and self.device.floodlight is not None:
+            self._light_state = self.device.floodlight
+
         self.hass.data[DOMAIN][DATA_EVENTS][self.device.entity_id] = (
             self.process_events(self.device.events)
+        )
+
+        self._attr_extra_state_attributes.update(
+            {
+                "id": self.device.entity_id,
+                "monitoring": self.device.monitoring,
+                "sd_status": self.device.sd_status,
+                "alim_status": self.device.alim_status,
+                "is_local": self.device.is_local,
+                "vpn_url": self.device.vpn_url,
+                "local_url": self.device.local_url,
+                "light_state": self._light_state,
+                "reachable": self.device.reachable,
+                "wifi_strength": getattr(self.device, "wifi_strength", None),
+                "firmware": getattr(self.device, "firmware_name", None),
+            }
         )
 
     def process_events(self, event_list: list[NaEvent]) -> dict:

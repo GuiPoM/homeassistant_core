@@ -132,9 +132,12 @@
 # name: test_entity[climate.cocina_cocina-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
+      'anticipating': False,
       'attribution': 'Data provided by Netatmo',
+      'away_temperature': 14,
       'current_temperature': 27,
       'friendly_name': 'Cocina',
+      'frost_guard_temperature': 7,
       'heating_power_request': 0,
       'hvac_action': <HVACAction.IDLE: 'idle'>,
       'hvac_modes': list([
@@ -143,6 +146,7 @@
       ]),
       'max_temp': 30,
       'min_temp': 7,
+      'open_window': False,
       'preset_mode': 'frost_guard',
       'preset_modes': list([
         'away',
@@ -150,8 +154,11 @@
         'frost_guard',
         'schedule',
       ]),
+      'scheduled_temperature': None,
+      'scheduled_zone_name': 'Eco',
       'selected_schedule': 'Default',
       'selected_schedule_id': '591b54a2764ff4d50d8b5795',
+      'setpoint_end_time': None,
       'supported_features': <ClimateEntityFeature: 401>,
       'target_temp_step': 0.5,
       'temperature': 7,
@@ -218,9 +225,13 @@
 # name: test_entity[climate.corridor_corridor-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
+      'anticipating': False,
       'attribution': 'Data provided by Netatmo',
+      'away_temperature': 14,
       'current_temperature': 22,
       'friendly_name': 'Corridor',
+      'frost_guard_temperature': 7,
+      'heating_power_request': 0,
       'hvac_action': <HVACAction.HEATING: 'heating'>,
       'hvac_modes': list([
         <HVACMode.AUTO: 'auto'>,
@@ -228,6 +239,7 @@
       ]),
       'max_temp': 30,
       'min_temp': 7,
+      'open_window': False,
       'preset_mode': 'schedule',
       'preset_modes': list([
         'away',
@@ -235,8 +247,11 @@
         'frost_guard',
         'schedule',
       ]),
+      'scheduled_temperature': None,
+      'scheduled_zone_name': 'Eco',
       'selected_schedule': 'Default',
       'selected_schedule_id': '591b54a2764ff4d50d8b5795',
+      'setpoint_end_time': None,
       'supported_features': <ClimateEntityFeature: 401>,
       'target_temp_step': 0.5,
       'temperature': 22,
@@ -303,9 +318,12 @@
 # name: test_entity[climate.entrada_entrada-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
+      'anticipating': False,
       'attribution': 'Data provided by Netatmo',
+      'away_temperature': 14,
       'current_temperature': 24.5,
       'friendly_name': 'Entrada',
+      'frost_guard_temperature': 7,
       'heating_power_request': 0,
       'hvac_action': <HVACAction.IDLE: 'idle'>,
       'hvac_modes': list([
@@ -314,6 +332,7 @@
       ]),
       'max_temp': 30,
       'min_temp': 7,
+      'open_window': False,
       'preset_mode': 'frost_guard',
       'preset_modes': list([
         'away',
@@ -321,8 +340,11 @@
         'frost_guard',
         'schedule',
       ]),
+      'scheduled_temperature': None,
+      'scheduled_zone_name': 'Eco',
       'selected_schedule': 'Default',
       'selected_schedule_id': '591b54a2764ff4d50d8b5795',
+      'setpoint_end_time': None,
       'supported_features': <ClimateEntityFeature: 401>,
       'target_temp_step': 0.5,
       'temperature': 7,
@@ -390,9 +412,13 @@
 # name: test_entity[climate.livingroom_livingroom-state]
   StateSnapshot({
     'attributes': ReadOnlyDict({
+      'anticipating': None,
       'attribution': 'Data provided by Netatmo',
+      'away_temperature': 14,
       'current_temperature': 19.8,
       'friendly_name': 'Livingroom',
+      'frost_guard_temperature': 7,
+      'heating_power_request': None,
       'hvac_action': <HVACAction.IDLE: 'idle'>,
       'hvac_modes': list([
         <HVACMode.AUTO: 'auto'>,
@@ -401,6 +427,7 @@
       ]),
       'max_temp': 30,
       'min_temp': 7,
+      'open_window': None,
       'preset_mode': 'away',
       'preset_modes': list([
         'away',
@@ -408,8 +435,11 @@
         'frost_guard',
         'schedule',
       ]),
+      'scheduled_temperature': None,
+      'scheduled_zone_name': 'Eco',
       'selected_schedule': 'Default',
       'selected_schedule_id': '591b54a2764ff4d50d8b5795',
+      'setpoint_end_time': None,
       'supported_features': <ClimateEntityFeature: 401>,
       'target_temp_step': 0.5,
       'temperature': 12,
