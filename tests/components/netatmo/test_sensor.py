@@ -106,6 +106,10 @@ async def test_public_weather_sensor(
     }
 
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    # Pass through siren_auth step (added by netatmo-plus) with empty credentials
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"siren_email": "", "siren_password": ""}
+    )
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], user_input={"new_area": "Home avg"}
     )
