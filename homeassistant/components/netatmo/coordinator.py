@@ -36,6 +36,7 @@ from .const import (
     NETATMO_CREATE_BUTTON,
     NETATMO_CREATE_CAMERA,
     NETATMO_CREATE_CAMERA_LIGHT,
+    NETATMO_CREATE_CAMERA_SIREN,
     NETATMO_CREATE_CLIMATE,
     NETATMO_CREATE_CLIMATE_BATTERY_SENSOR,
     NETATMO_CREATE_CONNECTIVITY_BINARY_SENSOR,
@@ -443,6 +444,7 @@ class NetatmoDataHandler:
             NetatmoDeviceCategory.camera: [
                 NETATMO_CREATE_CAMERA,
                 NETATMO_CREATE_CAMERA_LIGHT,
+                NETATMO_CREATE_CAMERA_SIREN,
             ],
             NetatmoDeviceCategory.dimmer: [NETATMO_CREATE_LIGHT],
             NetatmoDeviceCategory.shutter: [
