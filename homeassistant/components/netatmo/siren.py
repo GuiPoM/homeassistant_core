@@ -16,9 +16,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     CONF_URL_SECURITY,
-    DOMAIN,
     NETATMO_CREATE_CAMERA_SIREN,
-    WEB_SESSION_AUTH,
 )
 from .data_handler import HOME, SIGNAL_NAME, NetatmoDevice
 from .entity import NetatmoModuleEntity
@@ -80,10 +78,7 @@ class NetatmoCameraSiren(NetatmoModuleEntity, SirenEntity):
 
     def _get_web_auth(self) -> NetatmoWebSessionAuth | None:
         """Get the web session auth if configured."""
-        entry_data = self.hass.data.get(DOMAIN, {}).get(
-            self.data_handler.config_entry.entry_id, {}
-        )
-        return entry_data.get(WEB_SESSION_AUTH)
+        return getattr(self.data_handler, "web_auth", None)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn camera siren on."""
