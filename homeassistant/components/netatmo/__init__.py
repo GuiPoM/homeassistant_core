@@ -231,6 +231,19 @@ async def async_config_entry_updated(
     hass: HomeAssistant, entry: NetatmoConfigEntry
 ) -> None:
     """Handle signals of config entry being updated."""
+    # Update web session auth if siren credentials changed
+    siren_token = entry.options.get(CONF_SIREN_TOKEN)
+    if siren_token:
+        entry.runtime_data.web_auth = NetatmoWebSessionAuth(
+            aiohttp_client.async_get_clientsession(hass),
+            token=siren_token,
+            email=entry.options.get(CONF_SIREN_EMAIL),
+            password=entry.options.get(CONF_SIREN_PASSWORD),
+        )
+        _LOGGER.debug("Netatmo web session auth updated from options")
+    else:
+        entry.runtime_data.web_auth = None
+
     async_dispatcher_send(hass, f"signal-{DOMAIN}-public-update-{entry.entry_id}")
 
 
