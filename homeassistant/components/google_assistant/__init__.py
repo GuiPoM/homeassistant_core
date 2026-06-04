@@ -1,7 +1,5 @@
 """Support for Actions on Google Assistant Smart Home Control."""
-# pylint: disable=hass-use-runtime-data  # Uses legacy hass.data[DOMAIN] pattern
-
-from __future__ import annotations
+# pylint: disable=home-assistant-use-runtime-data  # Uses legacy hass.data[DOMAIN] pattern
 
 import logging
 
@@ -23,6 +21,7 @@ from .const import (  # noqa: F401
     CONF_PRIVATE_KEY,
     CONF_PROJECT_ID,
     CONF_REPORT_STATE,
+    CONF_REQUIRE_ACK,
     CONF_ROOM_HINT,
     CONF_SECURE_DEVICES_PIN,
     CONF_SERVICE_ACCOUNT,
@@ -50,6 +49,7 @@ ENTITY_SCHEMA = vol.Schema(
         vol.Optional(CONF_EXPOSE, default=True): cv.boolean,
         vol.Optional(CONF_ALIASES): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional(CONF_ROOM_HINT): cv.string,
+        vol.Optional(CONF_REQUIRE_ACK, default=False): cv.boolean,
     }
 )
 
@@ -166,6 +166,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoogleConfigEntry) -> bo
 
     # Register service only if key is provided
     if CONF_SERVICE_ACCOUNT in config:
+        # pylint: disable-next=home-assistant-service-registered-in-setup-entry
         hass.services.async_register(
             DOMAIN, SERVICE_REQUEST_SYNC, request_sync_service_handler
         )
