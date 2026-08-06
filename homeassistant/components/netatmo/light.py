@@ -123,8 +123,15 @@ class NetatmoCameraLight(NetatmoModuleEntity, LightEntity):
     @property
     @override
     def available(self) -> bool:
-        """If the webhook is not established, mark as unavailable."""
-        return super().available and bool(self.data_handler.webhook)
+        """Return True if the camera is powered (alim_status known).
+
+        Note: the original implementation used `data_handler.webhook` which was
+        intentional when async_update_callback relied on webhook-only data. Since
+        the pyatmo 7.0.1 refactor, async_update_callback reads `device.floodlight`
+        from the polled homestatus API — making the webhook flag incorrect as an
+        availability proxy. Fixed to match camera.py and siren.py.
+        """
+        return super().available and self.device.alim_status is not None
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -143,6 +150,7 @@ class NetatmoCameraLight(NetatmoModuleEntity, LightEntity):
     def async_update_callback(self) -> None:
         """Update the entity's state."""
         self._attr_is_on = bool(self.device.floodlight == "on")
+        self._attr_available = self.device.alim_status is not None
         self.async_write_ha_state()
 
 
