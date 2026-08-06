@@ -18,7 +18,7 @@ from .const import (
     CONF_URL_SECURITY,
     NETATMO_CREATE_CAMERA_SIREN,
 )
-from .data_handler import HOME, SIGNAL_NAME, NetatmoDevice
+from .coordinator import HOME, SIGNAL_NAME, NetatmoDevice
 from .entity import NetatmoModuleEntity
 from .web_auth import NetatmoWebSessionAuth
 
@@ -73,8 +73,8 @@ class NetatmoCameraSiren(NetatmoModuleEntity, SirenEntity):
 
     @property
     def available(self) -> bool:
-        """If the webhook is not established, mark as unavailable."""
-        return bool(self.data_handler.webhook)
+        """Return True if the camera is powered (alim_status known)."""
+        return self.device.alim_status is not None
 
     def _get_web_auth(self) -> NetatmoWebSessionAuth | None:
         """Get the web session auth if configured."""
