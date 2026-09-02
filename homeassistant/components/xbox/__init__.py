@@ -1,7 +1,5 @@
 """The xbox integration."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 
@@ -90,6 +88,27 @@ async def async_unload_entry(hass: HomeAssistant, entry: XboxConfigEntry) -> boo
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    config_entry: XboxConfigEntry,
+    device_entry: dr.AnyDeviceEntry,
+) -> bool:
+    """Remove a stale device from a config entry."""
+
+    return not any(
+        identifier
+        for identifier in device_entry.identifiers
+        if identifier[0] == DOMAIN
+        and (
+            (
+                isinstance(device_entry, dr.DeviceEntry)
+                and device_entry.entry_type == dr.DeviceEntryType.SERVICE
+            )
+            or identifier[1] in config_entry.runtime_data.consoles.data
+        )
+    )
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: XboxConfigEntry) -> bool:
     """Migrate config entry."""
 
@@ -162,14 +181,17 @@ async def async_migrate_entry(hass: HomeAssistant, entry: XboxConfigEntry) -> bo
                 )
                 hass.config_entries.async_add_subentry(entry, subentry)
 
-                if device := dev_reg.async_get_device({(DOMAIN, friend.xuid)}):
+                if device := dev_reg.async_get_device_by_identifier(
+                    (DOMAIN, friend.xuid), entry.entry_id
+                ):
                     dev_reg.async_update_device(
                         device.id,
-                        remove_config_entry_id=entry.entry_id,
-                        add_config_subentry_id=subentry.subentry_id,
-                        add_config_entry_id=entry.entry_id,
+                        new_config_entry_id=entry.entry_id,
+                        new_config_subentry_id=subentry.subentry_id,
                     )
-            if device := dev_reg.async_get_device({(DOMAIN, "xbox_live")}):
+            if device := dev_reg.async_get_device_by_identifier(
+                (DOMAIN, "xbox_live"), entry.entry_id
+            ):
                 dev_reg.async_update_device(
                     device.id, new_identifiers={(DOMAIN, client.xuid)}
                 )

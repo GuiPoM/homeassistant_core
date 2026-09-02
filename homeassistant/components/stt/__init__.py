@@ -1,12 +1,10 @@
 """Provide functionality to STT."""
 
-from __future__ import annotations
-
 from abc import abstractmethod
 from collections.abc import AsyncIterable
 from dataclasses import asdict
 import logging
-from typing import Any, final
+from typing import Any, final, override
 
 from aiohttp import web
 from aiohttp.hdrs import istr
@@ -73,6 +71,11 @@ __all__ = [
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
+
+# Audio is read from the request body in chunks of at most 4096 bytes because
+# line-based iteration raises LineTooLong on binary audio without newline bytes.
+# At 16 kHz/16-bit/mono, 4096 bytes represents up to 128 ms of audio.
+AUDIO_CHUNK_SIZE = 4096
 
 
 @callback
@@ -166,6 +169,7 @@ class SpeechToTextEntity(RestoreEntity):
 
     @property
     @final
+    @override
     def state(self) -> str | None:
         """Return the state of the provider entity."""
         if self.__last_processed is None:
@@ -207,6 +211,7 @@ class SpeechToTextEntity(RestoreEntity):
         """Return required/preferred input audio processing settings."""
         return DEFAULT_AUDIO_PROCESSING
 
+    @override
     async def async_internal_added_to_hass(self) -> None:
         """Call when the provider entity is added to hass."""
         await super().async_internal_added_to_hass()
@@ -291,7 +296,7 @@ class SpeechToTextView(HomeAssistantView):
 
             # Process audio stream
             result = await stt_provider.async_process_audio_stream(
-                metadata, request.content
+                metadata, request.content.iter_chunked(AUDIO_CHUNK_SIZE)
             )
         else:
             # Check format
@@ -300,7 +305,7 @@ class SpeechToTextView(HomeAssistantView):
 
             # Process audio stream
             result = await provider_entity.internal_async_process_audio_stream(
-                metadata, request.content
+                metadata, request.content.iter_chunked(AUDIO_CHUNK_SIZE)
             )
 
         # Return result
