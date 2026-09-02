@@ -1,10 +1,8 @@
 """Matter Number Inputs."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 from chip.clusters import Objects as clusters
 from chip.clusters.ClusterObjects import ClusterAttributeDescriptor, ClusterCommand
@@ -18,10 +16,10 @@ from homeassistant.components.number import (
     NumberMode,
 )
 from homeassistant.const import (
-    PERCENTAGE,
     EntityCategory,
     Platform,
     UnitOfLength,
+    UnitOfRatio,
     UnitOfTemperature,
     UnitOfTime,
 )
@@ -66,7 +64,8 @@ class MatterRangeNumberEntityDescription(
 
     # command: a custom callback to create the command to send to the device
     # the callback's argument will be the converted device value from ha_to_device
-    # if omitted the command will just be a write_attribute command to the primary attribute
+    # if omitted the command will just be a write_attribute
+    # command to the primary attribute
     command: Callable[[int], ClusterCommand] | None = None
 
 
@@ -75,6 +74,7 @@ class MatterNumber(MatterEntity, NumberEntity):
 
     entity_description: MatterNumberEntityDescription
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         sendvalue = int(value)
@@ -83,6 +83,7 @@ class MatterNumber(MatterEntity, NumberEntity):
         await self.write_attribute(value=sendvalue)
 
     @callback
+    @override
     def _update_from_device(self) -> None:
         """Update from device."""
         value = self.get_matter_attribute_value(self._entity_info.primary_attribute)
@@ -92,10 +93,11 @@ class MatterNumber(MatterEntity, NumberEntity):
 
 
 class MatterRangeNumber(MatterEntity, NumberEntity):
-    """Representation of a Matter Attribute as a Number entity with min and max values."""
+    """Matter Attribute as a Number entity with min and max."""
 
     entity_description: MatterRangeNumberEntityDescription
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         send_value = self.entity_description.ha_to_device(value)
@@ -111,9 +113,11 @@ class MatterRangeNumber(MatterEntity, NumberEntity):
         )
 
     @callback
+    @override
     def _update_from_device(self) -> None:
         """Update from device."""
-        # get the value from the primary attribute and convert it to the HA value if needed
+        # get the value from the primary attribute and convert
+        # it to the HA value if needed
         value = self.get_matter_attribute_value(self._entity_info.primary_attribute)
         if value_convert := self.entity_description.device_to_ha:
             value = value_convert(value)
@@ -143,6 +147,7 @@ class MatterLevelControlNumber(MatterEntity, NumberEntity):
 
     entity_description: MatterNumberEntityDescription
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set level value."""
         send_value = int(value)
@@ -155,6 +160,7 @@ class MatterLevelControlNumber(MatterEntity, NumberEntity):
         )
 
     @callback
+    @override
     def _update_from_device(self) -> None:
         """Update from device."""
         value = self.get_matter_attribute_value(self._entity_info.primary_attribute)
@@ -178,7 +184,6 @@ DISCOVERY_SCHEMAS = [
             device_to_ha=lambda x: 255 if x is None else x,
             ha_to_device=lambda x: None if x == 255 else int(x),
             native_step=1,
-            native_unit_of_measurement=None,
         ),
         entity_class=MatterNumber,
         required_attributes=(clusters.LevelControl.Attributes.OnLevel,),
@@ -199,7 +204,6 @@ DISCOVERY_SCHEMAS = [
             device_to_ha=lambda x: 255 if x is None else x,
             ha_to_device=lambda x: None if x == 255 else int(x),
             native_step=1,
-            native_unit_of_measurement=None,
         ),
         entity_class=MatterNumber,
         required_attributes=(clusters.LevelControl.Attributes.StartUpCurrentLevel,),
@@ -304,17 +308,22 @@ DISCOVERY_SCHEMAS = [
         ),
         featuremap_contains=(clusters.Thermostat.Bitmaps.Feature.kSetback),
     ),
-    # Eve temperature offset with higher min/max
+    # Eve temperature offset; shares the bounds of the generic schema below
+    # and will be merged into it under that schema's unique ID (follow-up PR)
     MatterDiscoverySchema(
         platform=Platform.NUMBER,
         entity_description=MatterNumberEntityDescription(
             key="EveTemperatureOffset",
-            device_class=NumberDeviceClass.TEMPERATURE,
+            device_class=NumberDeviceClass.TEMPERATURE_DELTA,
             entity_category=EntityCategory.CONFIG,
             translation_key="temperature_offset",
-            native_max_value=50,
-            native_min_value=-50,
-            native_step=0.5,
+            # Matter 1.4 raises this to the SignedTemperature type's usable
+            # range (±127 in 0.1°C units; -128 is reserved). Matter 1.3 is
+            # limited to ±2.5°C; that will be enforced via cluster_revision
+            # filtering in a follow-up PR.
+            native_max_value=12.7,
+            native_min_value=-12.7,
+            native_step=0.1,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             device_to_ha=lambda x: None if x is None else x / 10,
             ha_to_device=lambda x: round(x * 10),
@@ -330,12 +339,16 @@ DISCOVERY_SCHEMAS = [
         platform=Platform.NUMBER,
         entity_description=MatterNumberEntityDescription(
             key="TemperatureOffset",
-            device_class=NumberDeviceClass.TEMPERATURE,
+            device_class=NumberDeviceClass.TEMPERATURE_DELTA,
             entity_category=EntityCategory.CONFIG,
             translation_key="temperature_offset",
-            native_max_value=25,  # Matter 1.3 limit
-            native_min_value=-25,  # Matter 1.3 limit
-            native_step=0.5,
+            # Matter 1.4 raises this to the SignedTemperature type's usable
+            # range (±127 in 0.1°C units; -128 is reserved). Matter 1.3 is
+            # limited to ±2.5°C; that will be enforced via cluster_revision
+            # filtering in a follow-up PR.
+            native_max_value=12.7,
+            native_min_value=-12.7,
+            native_step=0.1,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             device_to_ha=lambda x: None if x is None else x / 10,
             ha_to_device=lambda x: round(x * 10),
@@ -350,7 +363,7 @@ DISCOVERY_SCHEMAS = [
         platform=Platform.NUMBER,
         entity_description=MatterNumberEntityDescription(
             key="pump_setpoint",
-            native_unit_of_measurement=PERCENTAGE,
+            native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
             translation_key="pump_setpoint",
             native_max_value=100,
             native_min_value=0.5,
@@ -360,7 +373,7 @@ DISCOVERY_SCHEMAS = [
                     None if x is None else min(x, 200) / 2
                 )  # Matter range (1-200, capped at 200)
             ),
-            ha_to_device=lambda x: round(x * 2),  # HA range 0.5–100.0%
+            ha_to_device=lambda x: round(x * 2),  # HA range 0.5-100.0%
             mode=NumberMode.SLIDER,
         ),
         entity_class=MatterLevelControlNumber,
@@ -373,7 +386,8 @@ DISCOVERY_SCHEMAS = [
         entity_description=MatterNumberEntityDescription(
             key="PIROccupiedToUnoccupiedDelay",
             entity_category=EntityCategory.CONFIG,
-            translation_key="hold_time",  # pir_occupied_to_unoccupied_delay for old revisions
+            # pir_occupied_to_unoccupied_delay for old revisions
+            translation_key="hold_time",
             native_max_value=65534,
             native_min_value=0,
             native_unit_of_measurement=UnitOfTime.SECONDS,
@@ -416,7 +430,8 @@ DISCOVERY_SCHEMAS = [
         entity_class=MatterNumber,
         required_attributes=(
             clusters.OccupancySensing.Attributes.PIRUnoccupiedToOccupiedDelay,
-            # This attribute is mandatory when the PIRUnoccupiedToOccupiedDelay is present
+            # This attribute is mandatory when
+            # PIRUnoccupiedToOccupiedDelay is present
             clusters.OccupancySensing.Attributes.HoldTime,
         ),
         featuremap_contains=clusters.OccupancySensing.Bitmaps.Feature.kPassiveInfrared,
@@ -472,15 +487,20 @@ DISCOVERY_SCHEMAS = [
             entity_category=EntityCategory.CONFIG,
             translation_key="valve_configuration_and_control_default_open_duration",
             native_max_value=65534,
-            native_min_value=1,
+            native_min_value=0,
             native_unit_of_measurement=UnitOfTime.SECONDS,
             mode=NumberMode.BOX,
+            # use 0 to indicate that no default duration is configured
+            device_to_ha=lambda x: 0 if x is None else x,
+            ha_to_device=lambda x: None if x == 0 else int(x),
         ),
         entity_class=MatterNumber,
         required_attributes=(
             clusters.ValveConfigurationAndControl.Attributes.DefaultOpenDuration,
         ),
         allow_multi=True,
+        # allow None value to account for the 'no default' state
+        allow_none_value=True,
     ),
     MatterDiscoverySchema(
         platform=Platform.NUMBER,
@@ -510,7 +530,7 @@ DISCOVERY_SCHEMAS = [
         entity_description=MatterRangeNumberEntityDescription(
             key="speaker_setpoint",
             translation_key="speaker_setpoint",
-            native_unit_of_measurement=PERCENTAGE,
+            native_unit_of_measurement=UnitOfRatio.PERCENTAGE,
             command=lambda value: clusters.LevelControl.Commands.MoveToLevel(
                 level=int(value)
             ),
