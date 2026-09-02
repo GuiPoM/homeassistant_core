@@ -3,7 +3,7 @@
 import logging
 from numbers import Number
 import re
-from typing import Any, cast
+from typing import Any
 
 import voluptuous as vol
 
@@ -18,7 +18,7 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_send,
 )
 
-from .config import HassioUpdateParametersDict
+from .config_entry import async_get_hassio_entry, async_get_update_options
 from .const import (
     ATTR_DATA,
     ATTR_ENDPOINT,
@@ -30,7 +30,6 @@ from .const import (
     ATTR_VERSION,
     ATTR_WS_EVENT,
     DATA_COMPONENT,
-    DATA_CONFIG_STORE,
     EVENT_SUPERVISOR_EVENT,
     WS_ID,
     WS_TYPE,
@@ -39,6 +38,7 @@ from .const import (
     WS_TYPE_SUBSCRIBE,
 )
 from .coordinator import get_addons_list
+from .exceptions import HassioNotReadyError
 from .handler import HassioAPIError
 from .update_helper import update_addon, update_core
 
@@ -47,7 +47,8 @@ SCHEMA_WEBSOCKET_EVENT = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
-# Endpoints needed for ingress can't require admin because add-ons can set `panel_admin: false`
+# Endpoints needed for ingress can't require admin because
+# add-ons can set `panel_admin: false`
 RE_ADDONS_INFO_ENDPOINT = r"/addons/[^/]+/info"
 WS_ADDONS_INFO_ENDPOINT = re.compile(r"^" + RE_ADDONS_INFO_ENDPOINT + r"$")
 WS_NO_ADMIN_ENDPOINTS = re.compile(
@@ -132,8 +133,9 @@ async def websocket_supervisor_api(
     payload = msg.get(ATTR_DATA, {})
 
     if command == "/ingress/session":
-        # Send user ID on session creation, so the supervisor can correlate session tokens with users
-        # for every request that is authenticated with the given ingress session token.
+        # Send user ID on session creation, so the supervisor can
+        # correlate session tokens with users for every request that
+        # is authenticated with the given ingress session token.
         payload[ATTR_SESSION_DATA_USER_ID] = connection.user.id
 
     try:
@@ -174,7 +176,20 @@ async def websocket_update_addon(
     """Websocket handler to update an addon."""
     addon_name: str | None = None
     addon_version: str | None = None
-    addons_list: list[dict[str, Any]] = get_addons_list(hass) or []
+    try:
+        addons_list: list[dict[str, Any]] = get_addons_list(hass)
+    except HassioNotReadyError:
+        _LOGGER.error(
+            "Update command received for app %s but apps list is not available",
+            msg["addon"],
+        )
+        connection.send_error(
+            msg[WS_ID],
+            code=websocket_api.ERR_UNKNOWN_ERROR,
+            message="Apps list is not available",
+        )
+        return
+
     for addon in addons_list:
         if addon[ATTR_SLUG] == msg["addon"]:
             addon_name = addon[ATTR_NAME]
@@ -209,9 +224,7 @@ def websocket_update_config_info(
     msg: dict[str, Any],
 ) -> None:
     """Send the stored backup config."""
-    connection.send_result(
-        msg["id"], hass.data[DATA_CONFIG_STORE].data.update_config.to_dict()
-    )
+    connection.send_result(msg["id"], async_get_update_options(hass))
 
 
 @callback
@@ -230,10 +243,23 @@ def websocket_update_config_update(
     msg: dict[str, Any],
 ) -> None:
     """Update the stored backup config."""
+    entry = async_get_hassio_entry(hass)
+    if entry is None:
+        connection.send_error(
+            msg["id"],
+            code=websocket_api.ERR_UNKNOWN_ERROR,
+            message="Hassio config entry is not available",
+        )
+        return
+
     changes = dict(msg)
     changes.pop("id")
     changes.pop("type")
-    hass.data[DATA_CONFIG_STORE].update(
-        update_config=cast(HassioUpdateParametersDict, changes)
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            **async_get_update_options(hass, entry),
+            **changes,
+        },
     )
     connection.send_result(msg["id"])
