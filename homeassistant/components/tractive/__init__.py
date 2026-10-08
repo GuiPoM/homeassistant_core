@@ -1,7 +1,5 @@
 """The tractive integration."""
 
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass
 import logging
@@ -21,12 +19,14 @@ from homeassistant.const import (
 )
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
+    ATTR_BUZZER,
     ATTR_DAILY_GOAL,
+    ATTR_LED,
     ATTR_MINUTES_ACTIVE,
     ATTR_MINUTES_DAY_SLEEP,
     ATTR_MINUTES_NIGHT_SLEEP,
@@ -63,7 +63,7 @@ class Trackables:
     trackable: dict[str, Any]
     tracker_details: dict[str, Any]
     hw_info: dict[str, Any]
-    pos_report: dict[str, Any]
+    pos_report: dict[str, Any] | None
     health_overview: dict[str, Any]
 
 
@@ -122,6 +122,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: TractiveConfigEntry) -> 
 
     entry.runtime_data = TractiveData(tractive, filtered_trackables)
 
+    # Register the tracker devices so entities on the pet devices can resolve
+    # their via_device link at construction time.
+    device_registry = dr.async_get(hass)
+    for item in filtered_trackables:
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            configuration_url="https://my.tractive.com/",
+            identifiers={(DOMAIN, item.tracker_details["_id"])},
+            translation_key="tracker",
+            translation_placeholders={"id": item.tracker_details["_id"]},
+            manufacturer="Tractive GmbH",
+            sw_version=item.tracker_details["fw_version"],
+            model_id=item.tracker_details["model_number"],
+        )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Send initial health overview data to sensors after platforms are set up
@@ -162,7 +177,8 @@ async def _generate_trackables(
 
     if "details" not in trackable_data:
         _LOGGER.warning(
-            "Tracker %s has no details and will be skipped. This happens for shared trackers",
+            "Tracker %s has no details and will be"
+            " skipped. This happens for shared trackers",
             trackable_data["device_id"],
         )
         return None
@@ -178,7 +194,8 @@ async def _generate_trackables(
 
     if not tracker_details.get("_id"):
         raise ConfigEntryNotReady(
-            f"Tractive API returns incomplete data for tracker {trackable_data['device_id']}",
+            "Tractive API returns incomplete data"
+            f" for tracker {trackable_data['device_id']}",
         )
 
     return Trackables(
@@ -308,6 +325,13 @@ class TractiveClient:
         for switch, key in SWITCH_KEY_MAP.items():
             if switch_data := event.get(key):
                 payload[switch] = switch_data["active"]
+                # A timed out LED or buzzer is still reported as active, with
+                # no time remaining
+                if (
+                    switch in (ATTR_BUZZER, ATTR_LED)
+                    and switch_data.get("remaining") == 0
+                ):
+                    payload[switch] = False
         if hardware := event.get("hardware", {}):
             payload[ATTR_POWER_SAVING] = (
                 hardware.get("power_saving_zone_id") is not None

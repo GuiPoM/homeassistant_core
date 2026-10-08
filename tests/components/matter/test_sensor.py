@@ -2,11 +2,19 @@
 
 from unittest.mock import MagicMock
 
+from chip.clusters import Objects as clusters
+from chip.clusters.ClusterObjects import ClusterAttributeDescriptor
 from matter_server.client.models.node import MatterNode
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
-from homeassistant.const import STATE_UNAVAILABLE, EntityCategory, Platform
+from homeassistant.components.matter.sensor import AIR_QUALITY_MAP
+from homeassistant.const import (
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    EntityCategory,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
@@ -83,6 +91,25 @@ async def test_humidity_sensor(
     state = hass.states.get("sensor.mock_humidity_sensor_humidity")
     assert state
     assert state.state == "40.0"
+
+
+@pytest.mark.parametrize("node_fixture", ["mock_soil_sensor"])
+async def test_soil_moisture_sensor(
+    hass: HomeAssistant,
+    matter_client: MagicMock,
+    matter_node: MatterNode,
+) -> None:
+    """Test soil moisture sensor."""
+    state = hass.states.get("sensor.mock_soil_sensor_moisture")
+    assert state
+    assert state.state == "50"
+
+    set_node_attribute(matter_node, 1, 1072, 1, 75)
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get("sensor.mock_soil_sensor_moisture")
+    assert state
+    assert state.state == "75"
 
 
 @pytest.mark.parametrize("node_fixture", ["mock_light_sensor"])
@@ -291,6 +318,33 @@ async def test_eve_weather_sensor_custom_cluster(
     assert state.state == "800.0"
 
 
+def test_air_quality_map_complete() -> None:
+    """Test every Matter air quality value is mapped."""
+    assert set(AIR_QUALITY_MAP) == set(clusters.AirQuality.Enums.AirQualityEnum)
+
+
+@pytest.mark.parametrize("node_fixture", ["air_quality_sensor"])
+async def test_air_quality_out_of_range(
+    hass: HomeAssistant,
+    matter_client: MagicMock,
+    matter_node: MatterNode,
+) -> None:
+    """Test an out of spec AirQuality value reports unknown."""
+    set_node_attribute(matter_node, 1, 91, 0, 1)
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get("sensor.lightfi_aq1_air_quality_sensor_air_quality")
+    assert state
+    assert state.state == "good"
+
+    set_node_attribute(matter_node, 1, 91, 0, 255)
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get("sensor.lightfi_aq1_air_quality_sensor_air_quality")
+    assert state
+    assert state.state == STATE_UNKNOWN
+
+
 @pytest.mark.parametrize("node_fixture", ["air_quality_sensor"])
 async def test_air_quality_sensor(
     hass: HomeAssistant,
@@ -477,7 +531,7 @@ async def test_draft_electrical_measurement_sensor(
     matter_client: MagicMock,
     matter_node: MatterNode,
 ) -> None:
-    """Test Draft Electrical Measurement cluster sensors, using Yandex Smart Socket fixture."""
+    """Test Draft Electrical Measurement sensors with Yandex Smart Socket."""
     state = hass.states.get("sensor.yndx_00540_power")
     assert state
     assert state.state == "70.0"
@@ -885,3 +939,204 @@ async def test_bridged_device_reachable_updates_availability(
         state = hass.states.get(entity_id)
         assert state
         assert state.state != STATE_UNAVAILABLE
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize("node_fixture", ["device_diagnostics"])
+async def test_wifi_rssi_sensor(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    matter_client: MagicMock,
+    matter_node: MatterNode,
+) -> None:
+    """Test WiFiNetworkDiagnostics RSSI sensor."""
+    # RSSI = -56
+    state = hass.states.get("sensor.m5stamp_lighting_app_wi_fi_rssi")
+    assert state
+    assert state.state == "-56"
+
+    set_node_attribute(
+        matter_node,
+        0,
+        clusters.WiFiNetworkDiagnostics.id,
+        clusters.WiFiNetworkDiagnostics.Attributes.Rssi.attribute_id,
+        -72,
+    )
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get("sensor.m5stamp_lighting_app_wi_fi_rssi")
+    assert state
+    assert state.state == "-72"
+
+    entry = entity_registry.async_get("sensor.m5stamp_lighting_app_wi_fi_rssi")
+    assert entry
+    assert entry.entity_category == EntityCategory.DIAGNOSTIC
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize(
+    ("entity_id", "attribute", "initial_state", "updated_value", "updated_state"),
+    [
+        (
+            "sensor.multi_state_sensor_p100_thread_channel",
+            clusters.ThreadNetworkDiagnostics.Attributes.Channel,
+            "25",
+            20,
+            "20",
+        ),
+        (
+            "sensor.multi_state_sensor_p100_thread_network_name",
+            clusters.ThreadNetworkDiagnostics.Attributes.NetworkName,
+            "MyHome1895415629",
+            "OtherNet",
+            "OtherNet",
+        ),
+    ],
+)
+@pytest.mark.parametrize("node_fixture", ["aqara_multi_state_p100"])
+async def test_thread_diagnostic_sensors(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    matter_client: MagicMock,
+    matter_node: MatterNode,
+    entity_id: str,
+    attribute: ClusterAttributeDescriptor,
+    initial_state: str,
+    updated_value: int | str,
+    updated_state: str,
+) -> None:
+    """Test ThreadNetworkDiagnostics Channel and NetworkName sensors."""
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == initial_state
+
+    set_node_attribute(
+        matter_node, 0, attribute.cluster_id, attribute.attribute_id, updated_value
+    )
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == updated_state
+
+    entry = entity_registry.async_get(entity_id)
+    assert entry
+    assert entry.entity_category == EntityCategory.DIAGNOSTIC
+
+
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize(
+    ("routing_role_value", "expected_state"),
+    [
+        (0, "unspecified"),
+        (1, "unassigned"),
+        (2, "sleepy_end_device"),
+        (3, "end_device"),
+        (4, "reed"),
+        (5, "router"),
+        (6, "leader"),
+    ],
+)
+@pytest.mark.parametrize("node_fixture", ["aqara_multi_state_p100"])
+async def test_thread_routing_role_enum_mapping(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    matter_client: MagicMock,
+    matter_node: MatterNode,
+    routing_role_value: int,
+    expected_state: str,
+) -> None:
+    """Test ThreadNetworkDiagnostics RoutingRole enum maps every value to a translatable state."""
+    entity_id = "sensor.multi_state_sensor_p100_thread_routing_role"
+
+    set_node_attribute(
+        matter_node,
+        0,
+        clusters.ThreadNetworkDiagnostics.id,
+        clusters.ThreadNetworkDiagnostics.Attributes.RoutingRole.attribute_id,
+        routing_role_value,
+    )
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get(entity_id)
+    assert state
+    assert state.state == expected_state
+
+    entry = entity_registry.async_get(entity_id)
+    assert entry
+    assert entry.entity_category == EntityCategory.DIAGNOSTIC
+    assert entry.capabilities is not None
+    assert expected_state in entry.capabilities["options"]
+
+
+@pytest.mark.freeze_time("2025-01-01T14:00:00+00:00")
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.parametrize("node_fixture", ["device_diagnostics"])
+async def test_general_diagnostics_sensors(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    matter_client: MagicMock,
+    matter_node: MatterNode,
+) -> None:
+    """Test GeneralDiagnostics cluster sensors."""
+    # RebootCount (cluster 51, attr 1) = 3
+    state = hass.states.get("sensor.m5stamp_lighting_app_reboot_count")
+    assert state
+    assert state.state == "3"
+
+    set_node_attribute(matter_node, 0, 51, 1, 5)
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get("sensor.m5stamp_lighting_app_reboot_count")
+    assert state
+    assert state.state == "5"
+
+    entry = entity_registry.async_get("sensor.m5stamp_lighting_app_reboot_count")
+    assert entry
+    assert entry.entity_category == EntityCategory.DIAGNOSTIC
+
+    # UpTime (cluster 51, attr 2) = 213 seconds → boot at now - 213s
+    state = hass.states.get("sensor.m5stamp_lighting_app_uptime")
+    assert state
+    assert state.state == "2025-01-01T13:56:27+00:00"
+
+    set_node_attribute(matter_node, 0, 51, 2, 3600)
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get("sensor.m5stamp_lighting_app_uptime")
+    assert state
+    assert state.state == "2025-01-01T13:00:00+00:00"
+
+    # BootReason (cluster 51, attr 4) = 1 (PowerOnReboot)
+    state = hass.states.get("sensor.m5stamp_lighting_app_boot_reason")
+    assert state
+    assert state.state == "power_on_reboot"
+
+    set_node_attribute(matter_node, 0, 51, 4, 6)
+    await trigger_subscription_callback(hass, matter_client)
+
+    state = hass.states.get("sensor.m5stamp_lighting_app_boot_reason")
+    assert state
+    assert state.state == "software_reset"
+
+    entry = entity_registry.async_get("sensor.m5stamp_lighting_app_boot_reason")
+    assert entry
+    assert entry.entity_category == EntityCategory.DIAGNOSTIC
+
+
+@pytest.mark.parametrize("node_fixture", ["device_diagnostics"])
+async def test_general_diagnostics_sensors_disabled_by_default(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    matter_client: MagicMock,
+    matter_node: MatterNode,
+) -> None:
+    """Test GeneralDiagnostics sensors are disabled by default."""
+    for entity_id in (
+        "sensor.m5stamp_lighting_app_reboot_count",
+        "sensor.m5stamp_lighting_app_uptime",
+        "sensor.m5stamp_lighting_app_boot_reason",
+    ):
+        entry = entity_registry.async_get(entity_id)
+        assert entry, f"Expected {entity_id} to be registered"
+        assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
