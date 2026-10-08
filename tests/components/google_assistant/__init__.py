@@ -26,6 +26,7 @@ class MockConfig(http.GoogleConfig):
         enabled=True,
         entity_config=None,
         hass: HomeAssistant | None = None,
+        presence_entity=None,
         secure_devices_pin=None,
         should_2fa=None,
         should_expose=None,
@@ -35,6 +36,7 @@ class MockConfig(http.GoogleConfig):
         super().__init__(hass, None)
         self._enabled = enabled
         self._entity_config = entity_config or {}
+        self._presence_entity = presence_entity
         self._secure_devices_pin = secure_devices_pin
         self._should_2fa = should_2fa
         self._should_expose = should_expose
@@ -52,6 +54,11 @@ class MockConfig(http.GoogleConfig):
         return self._secure_devices_pin
 
     @property
+    def presence_entity(self):
+        """Return presence entity."""
+        return self._presence_entity
+
+    @property
     def entity_config(self):
         """Return secure devices pin."""
         return self._entity_config
@@ -60,9 +67,9 @@ class MockConfig(http.GoogleConfig):
         """Get agent user ID making request."""
         return context.user_id
 
-    def should_expose(self, state):
+    def should_expose(self, entity_id):
         """Expose it all."""
-        return self._should_expose is None or self._should_expose(state)
+        return self._should_expose is None or self._should_expose(entity_id)
 
     @property
     def should_report_state(self):

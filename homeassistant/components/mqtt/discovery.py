@@ -1,7 +1,5 @@
 """Support for MQTT discovery."""
 
-from __future__ import annotations
-
 import asyncio
 from collections import deque
 from dataclasses import dataclass
@@ -12,7 +10,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any
 
-import voluptuous as vol
+import probatio
 
 from homeassistant.config_entries import (
     SOURCE_MQTT,
@@ -21,11 +19,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_DEVICE, CONF_PLATFORM
 from homeassistant.core import HassJobType, HomeAssistant, callback
-from homeassistant.helpers import (
-    config_validation as cv,
-    discovery_flow,
-    entity_registry as er,
-)
+from homeassistant.helpers import discovery_flow, entity_registry as er
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
@@ -44,6 +38,7 @@ from .const import (
     ATTR_DISCOVERY_TOPIC,
     CONF_AVAILABILITY,
     CONF_COMPONENTS,
+    CONF_DISCOVERY_QOS,
     CONF_ORIGIN,
     CONF_TOPIC,
     DOMAIN,
@@ -81,8 +76,8 @@ TOPIC_BASE = "~"
 
 CONF_MIGRATE_DISCOVERY = "migrate_discovery"
 
-MIGRATE_DISCOVERY_SCHEMA = vol.Schema(
-    {vol.Optional(CONF_MIGRATE_DISCOVERY): True},
+MIGRATE_DISCOVERY_SCHEMA = probatio.Schema(
+    {probatio.Optional(CONF_MIGRATE_DISCOVERY): True},
 )
 
 
@@ -111,7 +106,7 @@ def _async_process_discovery_migration(payload: MQTTDiscoveryPayload) -> bool:
     if CONF_MIGRATE_DISCOVERY in payload:
         try:
             MIGRATE_DISCOVERY_SCHEMA(payload)
-        except vol.Invalid as exc:
+        except probatio.Invalid as exc:
             _LOGGER.warning(exc)
             return False
         payload.migrate_discovery = True
@@ -194,7 +189,9 @@ def _replace_all_abbreviations(
     _replace_abbreviations(discovery_payload, ABBREVIATIONS, ABBREVIATIONS_SET)
 
     if CONF_AVAILABILITY in discovery_payload:
-        for availability_conf in cv.ensure_list(discovery_payload[CONF_AVAILABILITY]):
+        for availability_conf in probatio.EnsureList()(
+            discovery_payload[CONF_AVAILABILITY]
+        ):
             _replace_abbreviations(availability_conf, ABBREVIATIONS, ABBREVIATIONS_SET)
 
     if component_only:
@@ -232,7 +229,9 @@ def _replace_topic_base(discovery_payload: MQTTDiscoveryPayload) -> None:
             if value[-1] == TOPIC_BASE and key.endswith("topic"):
                 discovery_payload[key] = f"{value[:-1]}{base}"
     if discovery_payload.get(CONF_AVAILABILITY):
-        for availability_conf in cv.ensure_list(discovery_payload[CONF_AVAILABILITY]):
+        for availability_conf in probatio.EnsureList()(
+            discovery_payload[CONF_AVAILABILITY]
+        ):
             if not isinstance(availability_conf, dict):
                 continue
             if topic := str(availability_conf.get(CONF_TOPIC)):
@@ -304,7 +303,7 @@ def _parse_device_payload(
     _replace_all_abbreviations(device_payload)
     try:
         DEVICE_DISCOVERY_SCHEMA(device_payload)
-    except vol.Invalid as exc:
+    except probatio.Invalid as exc:
         _LOGGER.warning(
             "Invalid MQTT device discovery payload for %s, %s: '%s'",
             object_id,
@@ -344,9 +343,11 @@ def _merge_common_device_options(
         CONF_AVAILABILITY_TEMPLATE,
         CONF_AVAILABILITY_TOPIC,
         CONF_COMMAND_TOPIC,
+        CONF_ENCODING,
         CONF_PAYLOAD_AVAILABLE,
         CONF_PAYLOAD_NOT_AVAILABLE,
         CONF_STATE_TOPIC,
+        CONF_QOS
     Common options in the body of the device based config are inherited into
     the component. Unless the option is explicitly specified at component level,
     in that case the option at component level will override the common option.
@@ -554,7 +555,7 @@ async def async_start(  # noqa: C901
                     MQTT_DISCOVERY_DONE.format(*discovery_hash),
                     discovery_done,
                 ),
-                "pending": deque([]),
+                "pending": deque(),
             }
 
         if component not in mqtt_data.platforms_loaded and payload:
@@ -564,7 +565,10 @@ async def async_start(  # noqa: C901
             )
         elif already_discovered:
             # Dispatch update
-            message = f"Component has already been discovered: {component} {discovery_id}, sending update"
+            message = (
+                f"Component has already been discovered:"
+                f" {component} {discovery_id}, sending update"
+            )
             async_log_discovery_origin_info(message, payload)
             async_dispatcher_send(
                 hass, MQTT_DISCOVERY_UPDATED.format(*discovery_hash), payload
@@ -598,12 +602,13 @@ async def async_start(  # noqa: C901
                 hass, MQTT_DISCOVERY_DONE.format(*discovery_hash), None
             )
 
+    discovery_qos: int = config_entry.options.get(CONF_DISCOVERY_QOS, 0)
     mqtt_data.discovery_unsubscribe = [
         async_subscribe_internal(
             hass,
             topic,
             async_discovery_message_received,
-            0,
+            discovery_qos,
             job_type=HassJobType.Callback,
         )
         # Subscribe first for platform discovery wildcard topics first,
@@ -708,7 +713,7 @@ async def async_start(  # noqa: C901
                 hass,
                 topic,
                 functools.partial(async_integration_message_received, integration),
-                0,
+                discovery_qos,
                 job_type=HassJobType.Coroutinefunction,
             )
             for integration, topics in mqtt_integrations.items()

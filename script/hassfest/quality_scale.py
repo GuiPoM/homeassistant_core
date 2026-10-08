@@ -1,11 +1,9 @@
 """Validate integration quality scale files."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
-import voluptuous as vol
-from voluptuous.humanize import humanize_error
+import probatio
+from probatio.humanize import humanize_error
 
 from homeassistant.const import Platform
 from homeassistant.exceptions import HomeAssistantError
@@ -14,13 +12,8 @@ from homeassistant.util.yaml import load_yaml_dict
 from .model import Config, Integration, IntegrationType, ScaledQualityScaleTiers
 from .quality_scale_validation import (
     RuleValidationProtocol,
-    action_setup,
-    config_entry_unloading,
     config_flow,
-    diagnostics,
     discovery,
-    parallel_updates,
-    reauthentication_flow,
     reconfiguration_flow,
     runtime_data,
     strict_typing,
@@ -42,7 +35,7 @@ class Rule:
 
 ALL_RULES = [
     # BRONZE
-    Rule("action-setup", ScaledQualityScaleTiers.BRONZE, action_setup),
+    Rule("action-setup", ScaledQualityScaleTiers.BRONZE),
     Rule("appropriate-polling", ScaledQualityScaleTiers.BRONZE),
     Rule("brands", ScaledQualityScaleTiers.BRONZE),
     Rule("common-modules", ScaledQualityScaleTiers.BRONZE),
@@ -50,9 +43,11 @@ ALL_RULES = [
     Rule("config-flow-test-coverage", ScaledQualityScaleTiers.BRONZE),
     Rule("dependency-transparency", ScaledQualityScaleTiers.BRONZE),
     Rule("docs-actions", ScaledQualityScaleTiers.BRONZE),
+    Rule("docs-conditions", ScaledQualityScaleTiers.BRONZE),
     Rule("docs-high-level-description", ScaledQualityScaleTiers.BRONZE),
     Rule("docs-installation-instructions", ScaledQualityScaleTiers.BRONZE),
     Rule("docs-removal-instructions", ScaledQualityScaleTiers.BRONZE),
+    Rule("docs-triggers", ScaledQualityScaleTiers.BRONZE),
     Rule("entity-event-setup", ScaledQualityScaleTiers.BRONZE),
     Rule("entity-unique-id", ScaledQualityScaleTiers.BRONZE),
     Rule("has-entity-name", ScaledQualityScaleTiers.BRONZE),
@@ -62,22 +57,18 @@ ALL_RULES = [
     Rule("unique-config-entry", ScaledQualityScaleTiers.BRONZE, unique_config_entry),
     # SILVER
     Rule("action-exceptions", ScaledQualityScaleTiers.SILVER),
-    Rule(
-        "config-entry-unloading", ScaledQualityScaleTiers.SILVER, config_entry_unloading
-    ),
+    Rule("config-entry-unloading", ScaledQualityScaleTiers.SILVER),
     Rule("docs-configuration-parameters", ScaledQualityScaleTiers.SILVER),
     Rule("docs-installation-parameters", ScaledQualityScaleTiers.SILVER),
     Rule("entity-unavailable", ScaledQualityScaleTiers.SILVER),
     Rule("integration-owner", ScaledQualityScaleTiers.SILVER),
     Rule("log-when-unavailable", ScaledQualityScaleTiers.SILVER),
-    Rule("parallel-updates", ScaledQualityScaleTiers.SILVER, parallel_updates),
-    Rule(
-        "reauthentication-flow", ScaledQualityScaleTiers.SILVER, reauthentication_flow
-    ),
+    Rule("parallel-updates", ScaledQualityScaleTiers.SILVER),
+    Rule("reauthentication-flow", ScaledQualityScaleTiers.SILVER),
     Rule("test-coverage", ScaledQualityScaleTiers.SILVER),
     # GOLD: [
     Rule("devices", ScaledQualityScaleTiers.GOLD),
-    Rule("diagnostics", ScaledQualityScaleTiers.GOLD, diagnostics),
+    Rule("diagnostics", ScaledQualityScaleTiers.GOLD),
     Rule("discovery", ScaledQualityScaleTiers.GOLD, discovery),
     Rule("discovery-update-info", ScaledQualityScaleTiers.GOLD),
     Rule("docs-data-update", ScaledQualityScaleTiers.GOLD),
@@ -119,7 +110,6 @@ RULE_URL = (
 INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "abode",
     "accuweather",
-    "acer_projector",
     "acmeda",
     "actiontec",
     "adax",
@@ -128,8 +118,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "aemet",
     "aftership",
     "agent_dvr",
-    "airly",
-    "airnow",
     "airq",
     "airthings",
     "airthings_ble",
@@ -148,7 +136,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "ambient_network",
     "ambient_station",
     "amcrest",
-    "ampio",
     "analytics",
     "android_ip_webcam",
     "androidtv",
@@ -177,14 +164,12 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "asterisk_mbox",
     "asuswrt",
     "atag",
-    "aten_pe",
     "atome",
     "august",
     "aurora",
     "aurora_abb_powerone",
     "aussie_broadband",
     "avea",
-    "avion",
     "aws",
     "axis",
     "azure_data_explorer",
@@ -198,13 +183,10 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "bang_olufsen",
     "bayesian",
     "bbox",
-    "beewi_smartclim",
     "bitcoin",
     "bizkaibus",
     "blackbird",
-    "blebox",
     "blink",
-    "blinksticklight",
     "blockchain",
     "blue_current",
     "bluemaestro",
@@ -228,8 +210,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "caldav",
     "canary",
     "cast",
-    "ccm15",
-    "cert_expiry",
     "chacon_dio",
     "channels",
     "circuit",
@@ -237,7 +217,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "cisco_mobility_express",
     "cisco_webex_teams",
     "citybikes",
-    "clementine",
     "clickatell",
     "clicksend",
     "clicksend_tts",
@@ -253,7 +232,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "compensation",
     "concord232",
     "control4",
-    "coolmaster",
     "cppm_tracker",
     "cpuspeed",
     "crownstone",
@@ -284,25 +262,21 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "dlink",
     "dlna_dmr",
     "dlna_dms",
-    "dnsip",
     "dominos",
     "doods",
     "doorbird",
     "dormakaba_dkey",
-    "dovado",
     "downloader",
     "dremel_3d_printer",
     "drop_connect",
     "dsmr",
     "dsmr_reader",
-    "dublin_bus_transport",
     "dunehd",
     "duotecno",
     "dwd_weather_warnings",
     "dweet",
     "dynalite",
     "eafm",
-    "easyenergy",
     "ebox",
     "ebusd",
     "ecoal_boiler",
@@ -318,7 +292,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "egardia",
     "eight_sleep",
     "electrasmart",
-    "eliqonline",
     "elkm1",
     "elmax",
     "elv",
@@ -343,7 +316,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "epson",
     "eq3btsmart",
     "escea",
-    "etherscan",
     "eufy",
     "eufylife_ble",
     "everlights",
@@ -412,7 +384,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "geonetnz_volcano",
     "github",
     "gitlab_ci",
-    "gitter",
     "glances",
     "go2rtc",
     "goalzero",
@@ -436,7 +407,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "graphite",
     "gree",
     "greeneye_monitor",
-    "greenwave",
     "group",
     "gtfs",
     "guardian",
@@ -464,13 +434,11 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "honeywell",
     "horizon",
     "hp_ilo",
-    "html5",
     "http",
     "hue",
     "huisbaasje",
     "hunterdouglas_powerview",
     "husqvarna_automower_ble",
-    "hvv_departures",
     "hydrawise",
     "hyperion",
     "ialarm",
@@ -565,13 +533,11 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "local_todo",
     "location",
     "locative",
-    "logentries",
     "logi_circle",
     "london_air",
     "london_underground",
     "lookin",
     "loqed",
-    "luci",
     "luftdaten",
     "lupusec",
     "lutron",
@@ -603,14 +569,9 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "meteo_france",
     "meteoalarm",
     "meteoclimatic",
-    "metoffice",
     "mfi",
     "microbees",
     "microsoft",
-    "microsoft_face",
-    "microsoft_face_detect",
-    "microsoft_face_identify",
-    "mikrotik",
     "mill",
     "min_max",
     "minio",
@@ -623,9 +584,7 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "modern_forms",
     "moehlenhoff_alpha2",
     "mold_indicator",
-    "monarch_money",
     "monoprice",
-    "monzo",
     "moon",
     "mopeka",
     "motion_blinds",
@@ -640,7 +599,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "mullvad",
     "mutesync",
     "mvglive",
-    "mycroft",
     "myq",
     "mysensors",
     "mystrom",
@@ -651,8 +609,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "nasweb",
     "neato",
     "nederlandse_spoorwegen",
-    "ness_alarm",
-    "netatmo",
     "netdata",
     "netgear",
     "netgear_lte",
@@ -672,7 +628,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "nmbs",
     "no_ip",
     "noaa_tides",
-    "nobo_hub",
     "norway_air",
     "notify_events",
     "notion",
@@ -702,7 +657,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "opengarage",
     "openhardwaremonitor",
     "openhome",
-    "opensensemap",
     "opensky",
     "opentherm_gw",
     "openuv",
@@ -710,14 +664,12 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "opnsense",
     "opple",
     "oralb",
-    "oru",
     "orvibo",
     "osoenergy",
     "osramlightify",
     "otbr",
     "otp",
     "ourgroceries",
-    "overkiz",
     "ovo_energy",
     "owntracks",
     "p1_monitor",
@@ -753,8 +705,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "prosegur",
     "prowl",
     "proximity",
-    "proxmoxve",
-    "prusalink",
     "ps4",
     "pulseaudio_loopback",
     "pure_energie",
@@ -779,7 +729,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "radarr",
     "radio_browser",
     "radiotherm",
-    "raincloud",
     "rainforest_eagle",
     "rainforest_raven",
     "rainmachine",
@@ -824,11 +773,9 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "rympro",
     "saj",
     "sanix",
-    "schlage",
     "schluter",
     "scrape",
     "screenlogic",
-    "scsgate",
     "season",
     "sendgrid",
     "sense",
@@ -848,7 +795,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "shodan",
     "shopping_list",
     "sia",
-    "sigfox",
     "sighthound",
     "signal_messenger",
     "simplefin",
@@ -876,7 +822,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "snmp",
     "snooz",
     "solaredge",
-    "solaredge_local",
     "solax",
     "soma",
     "somfy_mylink",
@@ -885,7 +830,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "sony_projector",
     "soundtouch",
     "spc",
-    "speedtestdotnet",
     "spider",
     "spotify",
     "sql",
@@ -899,10 +843,8 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "statsd",
     "steam_online",
     "steamist",
-    "stiebel_eltron",
     "stream",
     "streamlabswater",
-    "subaru",
     "sun",
     "sunweg",
     "supervisord",
@@ -928,7 +870,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "tasmota",
     "tautulli",
     "tcp",
-    "technove",
     "ted5000",
     "telegram",
     "tellduslive",
@@ -936,11 +877,9 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "telnet",
     "temper",
     "template",
-    "tesla_fleet",
     "tesla_wall_connector",
     "thermobeacon",
     "thermopro",
-    "thermoworks_smoke",
     "thethingsnetwork",
     "thingspeak",
     "thinkingcleaner",
@@ -948,7 +887,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "thread",
     "threshold",
     "tibber",
-    "tikteck",
     "tile",
     "tilt_ble",
     "time_date",
@@ -972,7 +910,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "trafikverket_train",
     "trafikverket_weatherstation",
     "transport_nsw",
-    "travisci",
     "trend",
     "triggercmd",
     "tuya",
@@ -986,7 +923,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "uk_transport",
     "ukraine_alarm",
     "unifi_direct",
-    "unifiled",
     "universal",
     "upb",
     "upc_connect",
@@ -1008,8 +944,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "viaggiatreno",
     "vilfo",
     "vivotek",
-    "vizio",
-    "vlc",
     "vlc_telnet",
     "voicerss",
     "voip",
@@ -1020,10 +954,8 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "wake_on_lan",
     "wallbox",
     "waqi",
-    "watson_tts",
     "watttime",
     "waze_travel_time",
-    "weatherflow",
     "weatherflow_cloud",
     "weatherkit",
     "webmin",
@@ -1035,7 +967,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "withings",
     "wiz",
     "wmspro",
-    "wolflink",
     "workday",
     "worldclock",
     "worldtidesinfo",
@@ -1071,8 +1002,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
     "zengge",
     "zeroconf",
     "zerproc",
-    "zestimate",
-    "zeversolar",
     "zha",
     "zhong_hong",
     "ziggo_mediabox_xl",
@@ -1085,7 +1014,6 @@ INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE = [
 INTEGRATIONS_WITHOUT_SCALE = [
     "abode",
     "accuweather",
-    "acer_projector",
     "acmeda",
     "actiontec",
     "adax",
@@ -1095,7 +1023,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "aemet",
     "aftership",
     "agent_dvr",
-    "airly",
     "airnow",
     "airq",
     "airthings",
@@ -1116,7 +1043,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "ambient_network",
     "ambient_station",
     "amcrest",
-    "ampio",
     "analytics",
     "analytics_insights",
     "android_ip_webcam",
@@ -1146,14 +1072,12 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "asterisk_mbox",
     "asuswrt",
     "atag",
-    "aten_pe",
     "atome",
     "august",
     "aurora",
     "aurora_abb_powerone",
     "aussie_broadband",
     "avea",
-    "avion",
     "awair",
     "aws",
     "axis",
@@ -1168,13 +1092,10 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "bang_olufsen",
     "bayesian",
     "bbox",
-    "beewi_smartclim",
     "bitcoin",
     "bizkaibus",
     "blackbird",
-    "blebox",
     "blink",
-    "blinksticklight",
     "blockchain",
     "blue_current",
     "bluemaestro",
@@ -1198,7 +1119,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "caldav",
     "canary",
     "cast",
-    "ccm15",
     "cert_expiry",
     "chacon_dio",
     "channels",
@@ -1207,7 +1127,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "cisco_mobility_express",
     "cisco_webex_teams",
     "citybikes",
-    "clementine",
     "clickatell",
     "clicksend",
     "clicksend_tts",
@@ -1255,25 +1174,21 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "dlink",
     "dlna_dmr",
     "dlna_dms",
-    "dnsip",
     "dominos",
     "doods",
     "doorbird",
     "dormakaba_dkey",
-    "dovado",
     "downloader",
     "dremel_3d_printer",
     "drop_connect",
     "dsmr",
     "dsmr_reader",
-    "dublin_bus_transport",
     "dunehd",
     "duotecno",
     "dwd_weather_warnings",
     "dweet",
     "dynalite",
     "eafm",
-    "easyenergy",
     "ebox",
     "ebusd",
     "ecoal_boiler",
@@ -1290,7 +1205,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "eight_sleep",
     "electrasmart",
     "elevenlabs",
-    "eliqonline",
     "elkm1",
     "elmax",
     "elv",
@@ -1316,7 +1230,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "epson",
     "eq3btsmart",
     "escea",
-    "etherscan",
     "eufy",
     "eufylife_ble",
     "everlights",
@@ -1387,7 +1300,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "geonetnz_volcano",
     "github",
     "gitlab_ci",
-    "gitter",
     "glances",
     "go2rtc",
     "goalzero",
@@ -1414,7 +1326,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "graphite",
     "gree",
     "greeneye_monitor",
-    "greenwave",
     "group",
     "gtfs",
     "guardian",
@@ -1549,13 +1460,11 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "local_todo",
     "location",
     "locative",
-    "logentries",
     "logi_circle",
     "london_air",
     "london_underground",
     "lookin",
     "loqed",
-    "luci",
     "luftdaten",
     "lupusec",
     "lutron",
@@ -1587,14 +1496,9 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "meteo_france",
     "meteoalarm",
     "meteoclimatic",
-    "metoffice",
     "mfi",
     "microbees",
     "microsoft",
-    "microsoft_face",
-    "microsoft_face_detect",
-    "microsoft_face_identify",
-    "mikrotik",
     "mill",
     "min_max",
     "minio",
@@ -1609,7 +1513,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "mold_indicator",
     "monarch_money",
     "monoprice",
-    "monzo",
     "moon",
     "mopeka",
     "motion_blinds",
@@ -1624,7 +1527,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "mullvad",
     "mutesync",
     "mvglive",
-    "mycroft",
     "myq",
     "mysensors",
     "mystrom",
@@ -1637,7 +1539,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "nederlandse_spoorwegen",
     "nest",
     "ness_alarm",
-    "netatmo",
     "netdata",
     "netgear",
     "netgear_lte",
@@ -1659,7 +1560,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "nmbs",
     "no_ip",
     "noaa_tides",
-    "nobo_hub",
     "norway_air",
     "notify_events",
     "notion",
@@ -1689,7 +1589,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "opengarage",
     "openhardwaremonitor",
     "openhome",
-    "opensensemap",
     "opensky",
     "opentherm_gw",
     "openuv",
@@ -1697,7 +1596,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "opnsense",
     "opple",
     "oralb",
-    "oru",
     "orvibo",
     "osoenergy",
     "osramlightify",
@@ -1714,7 +1612,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "panel_iframe",
     "peco",
     "pencom",
-    "permobil",
     "persistent_notification",
     "person",
     "philips_js",
@@ -1741,7 +1638,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "prosegur",
     "prowl",
     "proximity",
-    "proxmoxve",
     "prusalink",
     "ps4",
     "pulseaudio_loopback",
@@ -1768,7 +1664,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "radarr",
     "radio_browser",
     "radiotherm",
-    "raincloud",
     "rainforest_eagle",
     "rainforest_raven",
     "rainmachine",
@@ -1818,7 +1713,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "schluter",
     "scrape",
     "screenlogic",
-    "scsgate",
     "season",
     "sendgrid",
     "sense",
@@ -1838,7 +1732,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "shodan",
     "shopping_list",
     "sia",
-    "sigfox",
     "sighthound",
     "signal_messenger",
     "simplefin",
@@ -1867,7 +1760,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "snmp",
     "snooz",
     "solaredge",
-    "solaredge_local",
     "solax",
     "soma",
     "somfy_mylink",
@@ -1891,11 +1783,9 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "statsd",
     "steam_online",
     "steamist",
-    "stiebel_eltron",
     "stream",
     "streamlabswater",
     "stookwijzer",
-    "subaru",
     "sun",
     "sunweg",
     "supervisord",
@@ -1918,14 +1808,12 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "systemmonitor",
     "tado",
     "tailscale",
-    "tailwind",
     "tami4",
     "tank_utility",
     "tapsaff",
     "tasmota",
     "tautulli",
     "tcp",
-    "technove",
     "ted5000",
     "telegram",
     "tellduslive",
@@ -1937,7 +1825,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "tesla_wall_connector",
     "thermobeacon",
     "thermopro",
-    "thermoworks_smoke",
     "thethingsnetwork",
     "thingspeak",
     "thinkingcleaner",
@@ -1945,7 +1832,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "thread",
     "threshold",
     "tibber",
-    "tikteck",
     "tile",
     "tilt_ble",
     "time_date",
@@ -1970,7 +1856,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "trafikverket_train",
     "trafikverket_weatherstation",
     "transport_nsw",
-    "travisci",
     "trend",
     "triggercmd",
     "tuya",
@@ -1984,7 +1869,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "uk_transport",
     "ukraine_alarm",
     "unifi_direct",
-    "unifiled",
     "universal",
     "upb",
     "upc_connect",
@@ -2007,8 +1891,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "viaggiatreno",
     "vilfo",
     "vivotek",
-    "vizio",
-    "vlc",
     "vlc_telnet",
     "voicerss",
     "voip",
@@ -2019,7 +1901,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "wake_on_lan",
     "wallbox",
     "waqi",
-    "watson_tts",
     "watttime",
     "waze_travel_time",
     "weatherflow",
@@ -2035,7 +1916,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "withings",
     "wiz",
     "wmspro",
-    "wolflink",
     "workday",
     "worldclock",
     "worldtidesinfo",
@@ -2071,8 +1951,6 @@ INTEGRATIONS_WITHOUT_SCALE = [
     "zengge",
     "zeroconf",
     "zerproc",
-    "zestimate",
-    "zeversolar",
     "zha",
     "zhong_hong",
     "ziggo_mediabox_xl",
@@ -2126,9 +2004,11 @@ NO_QUALITY_SCALE = [
     "intent_script",
     "intent",
     "labs",
+    "llm",
     "logbook",
     "logger",
     "lovelace",
+    "map_tiles",
     "media_source",
     "moisture",
     "motion",
@@ -2153,6 +2033,7 @@ NO_QUALITY_SCALE = [
     "timer",
     "trace",
     "usage_prediction",
+    "vibration",
     "web_rtc",
     "webhook",
     "websocket_api",
@@ -2160,22 +2041,22 @@ NO_QUALITY_SCALE = [
     "zone",
 ]
 
-SCHEMA = vol.Schema(
+SCHEMA = probatio.Schema(
     {
-        vol.Required("rules"): vol.Schema(
+        probatio.Required("rules"): probatio.Schema(
             {
-                vol.Optional(rule.name): vol.Any(
-                    vol.In(["todo", "done"]),
-                    vol.Schema(
+                probatio.Required(rule.name): probatio.Any(
+                    probatio.In(["todo", "done"]),
+                    probatio.Schema(
                         {
-                            vol.Required("status"): vol.In(["todo", "done"]),
-                            vol.Required("comment"): str,
+                            probatio.Required("status"): probatio.In(["todo", "done"]),
+                            probatio.Required("comment"): str,
                         }
                     ),
-                    vol.Schema(
+                    probatio.Schema(
                         {
-                            vol.Required("status"): "exempt",
-                            vol.Required("comment"): str,
+                            probatio.Required("status"): "exempt",
+                            probatio.Required("comment"): str,
                         }
                     ),
                 )
@@ -2204,16 +2085,23 @@ def validate_iqs_file(config: Config, integration: Integration) -> None:
             integration.add_error(
                 "quality_scale",
                 (
-                    "New integrations marked as internal should be added to NO_QUALITY_SCALE in script/hassfest/quality_scale.py."
+                    "New integrations marked as internal"
+                    " should be added to NO_QUALITY_SCALE"
+                    " in script/hassfest/quality_scale.py."
                     if integration.quality_scale == "internal"
-                    else "Quality scale definition not found. New integrations are required to at least reach the Bronze tier."
+                    else "Quality scale definition not found."
+                    " New integrations are required to at"
+                    " least reach the Bronze tier."
                 ),
             )
             return
         if declared_quality_scale is not None:
             integration.add_error(
                 "quality_scale",
-                "Quality scale definition not found. Integrations that set a manifest quality scale must have a quality scale definition.",
+                "Quality scale definition not found."
+                " Integrations that set a manifest quality"
+                " scale must have a quality scale"
+                " definition.",
             )
             return
         return
@@ -2232,7 +2120,9 @@ def validate_iqs_file(config: Config, integration: Integration) -> None:
     if integration.domain in INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE:
         integration.add_error(
             "quality_scale",
-            "Quality scale file found! Please remove from `INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE`"
+            "Quality scale file found! Please"
+            " remove from"
+            " `INTEGRATIONS_WITHOUT_QUALITY_SCALE_FILE`"
             " in script/hassfest/quality_scale.py",
         )
         return
@@ -2242,7 +2132,8 @@ def validate_iqs_file(config: Config, integration: Integration) -> None:
     ):
         integration.add_error(
             "quality_scale",
-            "This integration is graded and should be removed from `INTEGRATIONS_WITHOUT_SCALE`"
+            "This integration is graded and should be"
+            " removed from `INTEGRATIONS_WITHOUT_SCALE`"
             " in script/hassfest/quality_scale.py",
         )
         return
@@ -2253,7 +2144,10 @@ def validate_iqs_file(config: Config, integration: Integration) -> None:
         integration.add_error(
             "quality_scale",
             (
-                "New integrations marked as internal should be added to INTEGRATIONS_WITHOUT_SCALE in script/hassfest/quality_scale.py."
+                "New integrations marked as internal"
+                " should be added to"
+                " INTEGRATIONS_WITHOUT_SCALE in"
+                " script/hassfest/quality_scale.py."
                 if integration.quality_scale == "internal"
                 else "New integrations are required to at least reach the Bronze tier."
             ),
@@ -2269,7 +2163,7 @@ def validate_iqs_file(config: Config, integration: Integration) -> None:
 
     try:
         SCHEMA(data)
-    except vol.Invalid as err:
+    except probatio.Invalid as err:
         integration.add_error(
             "quality_scale", f"Invalid {name}: {humanize_error(data, err)}"
         )
@@ -2307,7 +2201,9 @@ def validate_iqs_file(config: Config, integration: Integration) -> None:
             )
             integration.add_error(
                 "quality_scale",
-                f"Quality scale tier {scale.name.lower()} requires quality scale rules to be met:\n{friendly_rule_str}",
+                f"Quality scale tier {scale.name.lower()}"
+                " requires quality scale rules to be"
+                f" met:\n{friendly_rule_str}",
             )
 
 

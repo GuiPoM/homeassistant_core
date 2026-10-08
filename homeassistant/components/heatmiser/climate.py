@@ -1,12 +1,10 @@
 """Support for the PRT Heatmiser thermostats using the V3 protocol."""
 
-from __future__ import annotations
-
 import logging
-from typing import Any
+from typing import Any, override
 
 from heatmiserv3 import connection, heatmiser
-import voluptuous as vol
+import probatio
 
 from homeassistant.components.climate import (
     PLATFORM_SCHEMA as CLIMATE_PLATFORM_SCHEMA,
@@ -31,18 +29,23 @@ _LOGGER = logging.getLogger(__name__)
 
 CONF_THERMOSTATS = "tstats"
 
-TSTATS_SCHEMA = vol.Schema(
-    vol.All(
-        cv.ensure_list,
-        [{vol.Required(CONF_ID): cv.positive_int, vol.Required(CONF_NAME): cv.string}],
+TSTATS_SCHEMA = probatio.Schema(
+    probatio.All(
+        probatio.EnsureList(),
+        [
+            {
+                probatio.Required(CONF_ID): cv.positive_int,
+                probatio.Required(CONF_NAME): cv.string,
+            }
+        ],
     )
 )
 
 PLATFORM_SCHEMA = CLIMATE_PLATFORM_SCHEMA.extend(
     {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_PORT): cv.string,
-        vol.Optional(CONF_THERMOSTATS, default=[]): TSTATS_SCHEMA,
+        probatio.Required(CONF_HOST): cv.string,
+        probatio.Required(CONF_PORT): cv.string,
+        probatio.Optional(CONF_THERMOSTATS, default=[]): TSTATS_SCHEMA,
     }
 )
 
@@ -91,6 +94,7 @@ class HeatmiserV3Thermostat(ClimateEntity):
         self.dcb = None
         self._attr_hvac_mode = HVACMode.HEAT
 
+    @override
     def set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:

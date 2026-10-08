@@ -1,19 +1,18 @@
 """Fan platform for the Duco integration."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
-from duco.exceptions import DucoError, DucoRateLimitError
-from duco.models import Node, NodeType, VentilationState
+from duco_connectivity.exceptions import DucoError, DucoRateLimitError
+from duco_connectivity.models import Node, VentilationState
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import percentage_to_ordered_list_item
 
-from .const import DOMAIN
+from .const import BOX_NODE_ID, DOMAIN
 from .coordinator import DucoConfigEntry, DucoCoordinator
 from .entity import DucoEntity
 
@@ -63,13 +62,20 @@ async def async_setup_entry(
 ) -> None:
     """Set up Duco fan entities."""
     coordinator = entry.runtime_data
+    fan_added = False
 
-    # BOX is always node 1 and is never dynamically added or removed, so no listener needed.
-    async_add_entities(
-        DucoVentilationFanEntity(coordinator, node)
-        for node in coordinator.data.nodes.values()
-        if node.general.node_type == NodeType.BOX
-    )
+    @callback
+    def _add_new_entities() -> None:
+        """Add the fan when the box node is available."""
+        nonlocal fan_added
+        if fan_added or (box_node := coordinator.data.nodes.get(BOX_NODE_ID)) is None:
+            return
+
+        fan_added = True
+        async_add_entities([DucoVentilationFanEntity(coordinator, box_node)])
+
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
+    _add_new_entities()
 
 
 class DucoVentilationFanEntity(DucoEntity, FanEntity):
@@ -87,6 +93,7 @@ class DucoVentilationFanEntity(DucoEntity, FanEntity):
         self._attr_unique_id = f"{coordinator.config_entry.unique_id}_{node.node_id}"
 
     @property
+    @override
     def percentage(self) -> int | None:
         """Return the current speed as a percentage, or None when in AUTO mode."""
         node = self._node
@@ -95,6 +102,7 @@ class DucoVentilationFanEntity(DucoEntity, FanEntity):
         return _STATE_TO_PERCENTAGE.get(node.ventilation.state)
 
     @property
+    @override
     def preset_mode(self) -> str | None:
         """Return the current preset mode (auto when Duco controls, else None)."""
         node = self._node
@@ -104,11 +112,13 @@ class DucoVentilationFanEntity(DucoEntity, FanEntity):
             return PRESET_AUTO
         return None
 
+    @override
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set preset mode: 'auto' hands control back to Duco."""
         self._valid_preset_mode_or_raise(preset_mode)
         await self._async_set_state(VentilationState.AUTO)
 
+    @override
     async def async_set_percentage(self, percentage: int) -> None:
         """Set the fan speed as a percentage (maps to low/medium/high)."""
         if percentage == 0:
@@ -118,11 +128,9 @@ class DucoVentilationFanEntity(DucoEntity, FanEntity):
         await self._async_set_state(state)
 
     async def _async_set_state(self, state: VentilationState) -> None:
-        """Send the ventilation state to the device and refresh coordinator."""
+        """Set the ventilation state."""
         try:
-            await self.coordinator.client.async_set_ventilation_state(
-                self._node_id, state
-            )
+            await self.coordinator.async_set_ventilation_state(self._node_id, state)
         except DucoRateLimitError as err:
             _LOGGER.warning("Duco write rate limit exceeded for node %s", self._node_id)
             raise HomeAssistantError(
@@ -133,6 +141,4 @@ class DucoVentilationFanEntity(DucoEntity, FanEntity):
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="failed_to_set_state",
-                translation_placeholders={"error": repr(err)},
             ) from err
-        await self.coordinator.async_refresh()

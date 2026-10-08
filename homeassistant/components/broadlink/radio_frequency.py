@@ -1,10 +1,10 @@
 """Radio Frequency platform for Broadlink."""
 
-from __future__ import annotations
-
 import logging
+from typing import override
 
 from broadlink.exceptions import BroadlinkException
+from broadlink.remote import TICK
 from rf_protocols import RadioFrequencyCommand
 
 from homeassistant.components.radio_frequency import RadioFrequencyTransmitterEntity
@@ -21,7 +21,9 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
 
-_TICK_US = 32.84
+# The device's timing unit in microseconds, taken from the library so the
+# IR and RF paths on the same hardware always agree.
+_TICK_US = TICK
 
 _RF_433_TYPE_BYTE = 0xB2
 _RF_315_TYPE_BYTE = 0xB4
@@ -61,8 +63,9 @@ def encode_rf_packet(
         bytes 4..N-1     pulses: 1 byte when ticks < 256, otherwise
                          0x00 followed by a 2-byte big-endian tick count
 
-    Each pulse is expressed as multiples of 32.84 µs ticks, which is the
-    timing resolution of the Broadlink RF front-end.
+    Each pulse is expressed as multiples of the Broadlink timing unit
+    (about 30.45 µs, ``broadlink.remote.TICK``), which is the timing
+    resolution of the RF front-end.
     """
     buf = bytearray([type_byte, repeat_count, 0, 0])
     for duration in timings_us:
@@ -85,7 +88,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up a Broadlink radio frequency transmitter."""
     # Uses legacy hass.data[DOMAIN] pattern
-    # pylint: disable-next=hass-use-runtime-data
+    # pylint: disable-next=home-assistant-use-runtime-data
     device: BroadlinkDevice = hass.data[DOMAIN].devices[config_entry.entry_id]
     async_add_entities([BroadlinkRadioFrequency(device)])
 
@@ -94,7 +97,7 @@ class BroadlinkRadioFrequency(BroadlinkEntity, RadioFrequencyTransmitterEntity):
     """Representation of a Broadlink RF transmitter."""
 
     _attr_has_entity_name = True
-    _attr_name = None
+    _attr_translation_key = "rf_transmitter"
 
     def __init__(self, device: BroadlinkDevice) -> None:
         """Initialize the entity."""
@@ -102,10 +105,12 @@ class BroadlinkRadioFrequency(BroadlinkEntity, RadioFrequencyTransmitterEntity):
         self._attr_unique_id = device.unique_id
 
     @property
+    @override
     def supported_frequency_ranges(self) -> list[tuple[int, int]]:
         """Return the Broadlink-supported narrow RF bands."""
         return SUPPORTED_FREQUENCY_RANGES
 
+    @override
     async def async_send_command(self, command: RadioFrequencyCommand) -> None:
         """Encode an OOK command and transmit it via the Broadlink device."""
         type_byte = _type_byte_for_frequency(command.frequency)

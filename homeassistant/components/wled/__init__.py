@@ -1,7 +1,5 @@
 """Support for WLED."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import TYPE_CHECKING
@@ -33,19 +31,18 @@ PLATFORMS = (
     Platform.UPDATE,
 )
 
-WLED_KEY: HassKey[WLEDReleasesDataUpdateCoordinator] = HassKey(DOMAIN)
+WLED_KEY: HassKey[dict[str, WLEDReleasesDataUpdateCoordinator]] = HassKey(DOMAIN)
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the WLED integration.
 
-    We set up a single coordinator for fetching WLED releases, which
-    is used across all WLED devices (and config entries) to avoid
-    fetching the same data multiple times for each.
+    Releases are fetched by one coordinator per firmware repository, shared
+    across all WLED devices (and config entries) using it, to avoid fetching
+    the same data multiple times for each.
     """
-    hass.data[WLED_KEY] = WLEDReleasesDataUpdateCoordinator(hass)
-    await hass.data[WLED_KEY].async_request_refresh()
+    hass.data[WLED_KEY] = {}
     return True
 
 
@@ -65,10 +62,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: WLEDConfigEntry) -> boo
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         coordinator = entry.runtime_data
 
-        # Ensure disconnected and cleanup stop sub
+        # Ensure disconnected and cleanup stop sub. Cleared once called, as the
+        # WebSocket listener also cleans it up when the disconnect ends it.
         await coordinator.wled.disconnect()
         if coordinator.unsub:
             coordinator.unsub()
+            coordinator.unsub = None
 
     return unload_ok
 
@@ -82,10 +81,6 @@ async def async_migrate_entry(
         config_entry.version,
         config_entry.minor_version,
     )
-
-    if config_entry.version > 1:
-        # The user has downgraded from a future version
-        return False
 
     if config_entry.version == 1:
         if config_entry.minor_version < 2:
@@ -108,7 +103,8 @@ async def async_migrate_entry(
             ]
             if ignored_entries:
                 _LOGGER.info(
-                    "Found %d ignored WLED config entries with the same MAC address, removing them",
+                    "Found %d ignored WLED config entries"
+                    " with the same MAC address, removing them",
                     len(ignored_entries),
                 )
                 await asyncio.gather(
@@ -119,7 +115,9 @@ async def async_migrate_entry(
                 )
             if len(duplicate_entries) - len(ignored_entries) > 1:
                 _LOGGER.warning(
-                    "Found multiple WLED config entries with the same MAC address, cannot migrate to version 1.2"
+                    "Found multiple WLED config entries with"
+                    " the same MAC address, cannot migrate"
+                    " to version 1.2"
                 )
                 return False
 

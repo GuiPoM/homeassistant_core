@@ -1,7 +1,5 @@
 """The UniFi Access integration."""
 
-from __future__ import annotations
-
 from unifi_access_api import ApiAuthError, ApiConnectionError, UnifiAccessApiClient
 
 from homeassistant.const import CONF_API_TOKEN, CONF_HOST, CONF_VERIFY_SSL, Platform
@@ -31,7 +29,7 @@ PLATFORMS: list[Platform] = [
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the UniFi Access integration."""
-    await async_setup_services(hass)
+    async_setup_services(hass)
     return True
 
 
@@ -54,11 +52,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: UnifiAccessConfigEntry) 
         await client.authenticate()
     except ApiAuthError as err:
         raise ConfigEntryAuthFailed(
-            f"Authentication failed for UniFi Access at {entry.data[CONF_HOST]}"
+            translation_domain=DOMAIN,
+            translation_key="auth_failed",
+            translation_placeholders={"host": entry.data[CONF_HOST]},
         ) from err
     except ApiConnectionError as err:
         raise ConfigEntryNotReady(
-            f"Unable to connect to UniFi Access at {entry.data[CONF_HOST]}"
+            translation_domain=DOMAIN,
+            translation_key="cannot_connect",
+            translation_placeholders={"host": entry.data[CONF_HOST]},
         ) from err
 
     coordinator = UnifiAccessCoordinator(hass, entry, client)

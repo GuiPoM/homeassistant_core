@@ -1,7 +1,5 @@
 """The Frontier Silicon integration."""
 
-from __future__ import annotations
-
 import logging
 
 from afsapi import AFSAPI, FSConnectionError
@@ -13,7 +11,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import CONF_WEBFSAPI_URL
 
-PLATFORMS = [Platform.MEDIA_PLAYER]
+PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SWITCH]
 
 _LOGGER = logging.getLogger(__name__)
 
