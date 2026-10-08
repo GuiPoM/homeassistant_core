@@ -1,11 +1,9 @@
 """Support for WaterFurnace geothermal systems."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 
-import voluptuous as vol
+import probatio
 from waterfurnace.waterfurnace import WaterFurnace, WFCredentialError, WFException
 
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
@@ -28,16 +26,16 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.CLIMATE, Platform.SENSOR]
 
-CONFIG_SCHEMA = vol.Schema(
+CONFIG_SCHEMA = probatio.Schema(
     {
-        DOMAIN: vol.Schema(
+        DOMAIN: probatio.Schema(
             {
-                vol.Required(CONF_USERNAME): cv.string,
-                vol.Required(CONF_PASSWORD): cv.string,
+                probatio.Required(CONF_USERNAME): cv.string,
+                probatio.Required(CONF_PASSWORD): cv.string,
             }
         )
     },
-    extra=vol.ALLOW_EXTRA,
+    extra=probatio.ALLOW_EXTRA,
 )
 type WaterFurnaceConfigEntry = ConfigEntry[dict[str, WaterFurnaceDeviceData]]
 

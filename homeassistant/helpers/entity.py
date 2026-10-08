@@ -15,27 +15,29 @@ import sys
 import threading
 import time
 from types import FunctionType
-from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict, final
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Final,
+    Literal,
+    NotRequired,
+    TypedDict,
+    final,
+    override,
+)
 
+import probatio
 from propcache.api import cached_property
-import voluptuous as vol
 
 from homeassistant.const import (
-    ATTR_ASSUMED_STATE,
-    ATTR_ATTRIBUTION,
-    ATTR_DEVICE_CLASS,
-    ATTR_ENTITY_PICTURE,
-    ATTR_FRIENDLY_NAME,
-    ATTR_GROUP_ENTITIES,
-    ATTR_ICON,
-    ATTR_SUPPORTED_FEATURES,
-    ATTR_UNIT_OF_MEASUREMENT,
     DEVICE_DEFAULT_NAME,
     STATE_OFF,
     STATE_ON,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
+    EntityCapabilityAttribute,
     EntityCategory,
+    EntityStateAttribute,
 )
 from homeassistant.core import (
     CALLBACK_TYPE,
@@ -55,7 +57,7 @@ from homeassistant.util import ensure_unique_string, slugify
 from homeassistant.util.frozen_dataclass_compat import FrozenOrThawed
 
 from . import device_registry as dr, entity_registry as er
-from .device_registry import DeviceInfo, EventDeviceRegistryUpdatedData
+from .device_registry import ChildDeviceInfo, DeviceInfo, EventDeviceRegistryUpdatedData
 from .event import (
     async_track_device_registry_updated_event,
     async_track_entity_registry_updated_event,
@@ -76,7 +78,7 @@ DATA_ENTITY_SOURCE = "entity_info"
 
 # Used when converting float states to string: limit precision according to machine
 # epsilon to make the string representation readable
-FLOAT_PRECISION = abs(int(math.floor(math.log10(abs(sys.float_info.epsilon))))) - 1
+FLOAT_PRECISION = abs(math.floor(math.log10(abs(sys.float_info.epsilon)))) - 1
 
 # How many times per hour we allow capabilities to be updated before logging a warning
 CAPABILITIES_UPDATE_LIMIT = 100
@@ -158,7 +160,7 @@ def get_device_class(hass: HomeAssistant, entity_id: str) -> str | None:
     First try the statemachine, then entity registry.
     """
     if state := hass.states.get(entity_id):
-        return state.attributes.get(ATTR_DEVICE_CLASS)
+        return state.attributes.get(EntityStateAttribute.DEVICE_CLASS)
 
     entity_registry = er.async_get(hass)
     if not (entry := entity_registry.async_get(entity_id)):
@@ -169,7 +171,7 @@ def get_device_class(hass: HomeAssistant, entity_id: str) -> str | None:
 
 def get_device_class_or_undefined(
     hass: HomeAssistant, entity_id: str
-) -> str | None | UndefinedType:
+) -> str | UndefinedType | None:
     """Get the device class of an entity or UNDEFINED if not found."""
     try:
         return get_device_class(hass, entity_id)
@@ -183,7 +185,7 @@ def get_supported_features(hass: HomeAssistant, entity_id: str) -> int:
     First try the statemachine, then entity registry.
     """
     if state := hass.states.get(entity_id):
-        return state.attributes.get(ATTR_SUPPORTED_FEATURES, 0)  # type: ignore[no-any-return]
+        return state.attributes.get(EntityStateAttribute.SUPPORTED_FEATURES, 0)  # type: ignore[no-any-return]
 
     entity_registry = er.async_get(hass)
     if not (entry := entity_registry.async_get(entity_id)):
@@ -198,7 +200,7 @@ def get_unit_of_measurement(hass: HomeAssistant, entity_id: str) -> str | None:
     First try the statemachine, then entity registry.
     """
     if state := hass.states.get(entity_id):
-        return state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        return state.attributes.get(EntityStateAttribute.UNIT_OF_MEASUREMENT)
 
     entity_registry = er.async_get(hass)
     if not (entry := entity_registry.async_get(entity_id)):
@@ -207,7 +209,7 @@ def get_unit_of_measurement(hass: HomeAssistant, entity_id: str) -> str | None:
     return entry.unit_of_measurement
 
 
-ENTITY_CATEGORIES_SCHEMA: Final = vol.Coerce(EntityCategory)
+ENTITY_CATEGORIES_SCHEMA: Final = probatio.Coerce(EntityCategory)
 
 
 class EntityInfo(TypedDict):
@@ -276,6 +278,58 @@ class CalculatedState:
     attributes: dict[str, Any]
 
 
+def _attr_deleter(name: str) -> Callable[[Any], None]:
+    """Create a deleter for an _attr_ property."""
+    private_attr_name = f"__attr_{name}"
+
+    def _deleter(o: Any) -> None:
+        """Delete an _attr_ property.
+
+        Does two things:
+        - Delete the __attr_ attribute
+        - Invalidate the cache of the cached property
+
+        Raises AttributeError if the __attr_ attribute does not exist
+        """
+        # Invalidate the cache of the cached property
+        o.__dict__.pop(name, None)
+        # Delete the __attr_ attribute
+        delattr(o, private_attr_name)
+
+    return _deleter
+
+
+def _attr_setter(name: str) -> Callable[[Any, Any], None]:
+    """Create a setter for an _attr_ property."""
+    private_attr_name = f"__attr_{name}"
+
+    def _setter(o: Any, val: Any) -> None:
+        """Set an _attr_ property to the backing __attr attribute.
+
+        Also invalidates the corresponding cached_property by calling
+        delattr on it.
+        """
+        if (old_val := getattr(o, private_attr_name, _SENTINEL)) == val and type(
+            old_val
+        ) is type(val):
+            return
+        setattr(o, private_attr_name, val)
+        # Invalidate the cache of the cached property
+        o.__dict__.pop(name, None)
+
+    return _setter
+
+
+@ft.cache
+def _make_attr_property(name: str) -> property:
+    """Create an _attr_ property, shared by all classes wrapping the same name."""
+    return property(
+        fget=attrgetter(f"__attr_{name}"),
+        fset=_attr_setter(name),
+        fdel=_attr_deleter(name),
+    )
+
+
 class CachedProperties(type):
     """Metaclass which invalidates cached entity properties on write to _attr_.
 
@@ -318,52 +372,6 @@ class CachedProperties(type):
         Wrap _attr_ for cached properties in property objects.
         """
 
-        def deleter(name: str) -> Callable[[Any], None]:
-            """Create a deleter for an _attr_ property."""
-            private_attr_name = f"__attr_{name}"
-
-            def _deleter(o: Any) -> None:
-                """Delete an _attr_ property.
-
-                Does two things:
-                - Delete the __attr_ attribute
-                - Invalidate the cache of the cached property
-
-                Raises AttributeError if the __attr_ attribute does not exist
-                """
-                # Invalidate the cache of the cached property
-                o.__dict__.pop(name, None)
-                # Delete the __attr_ attribute
-                delattr(o, private_attr_name)
-
-            return _deleter
-
-        def setter(name: str) -> Callable[[Any, Any], None]:
-            """Create a setter for an _attr_ property."""
-            private_attr_name = f"__attr_{name}"
-
-            def _setter(o: Any, val: Any) -> None:
-                """Set an _attr_ property to the backing __attr attribute.
-
-                Also invalidates the corresponding cached_property by calling
-                delattr on it.
-                """
-                if (
-                    old_val := getattr(o, private_attr_name, _SENTINEL)
-                ) == val and type(old_val) is type(val):
-                    return
-                setattr(o, private_attr_name, val)
-                # Invalidate the cache of the cached property
-                o.__dict__.pop(name, None)
-
-            return _setter
-
-        def make_property(name: str) -> property:
-            """Help create a property object."""
-            return property(
-                fget=attrgetter(f"__attr_{name}"), fset=setter(name), fdel=deleter(name)
-            )
-
         def wrap_attr(cls: CachedProperties, property_name: str) -> None:
             """Wrap a cached property's corresponding _attr in a property.
 
@@ -373,7 +381,8 @@ class CachedProperties(type):
             attr_name = f"_attr_{property_name}"
             private_attr_name = f"__attr_{property_name}"
             # Check if an _attr_ class attribute exits and move it to __attr_. We check
-            # __dict__ here because we don't care about _attr_ class attributes in parents.
+            # __dict__ here because we don't care about _attr_ class
+            # attributes in parents.
             if attr_name in cls.__dict__:
                 attr = getattr(cls, attr_name)
                 if isinstance(attr, (FunctionType, property)):
@@ -388,13 +397,14 @@ class CachedProperties(type):
                     else:
 
                         def wrapped_annotate(format: Format) -> dict[str, Any]:
-                            # Note: to avoid complicating things, we only support FORWARDREF
+                            # Note: to avoid complicating things,
+                            # we only support FORWARDREF
                             return annotations
 
                         cls.__annotate__ = wrapped_annotate
 
             # Create the _attr_ property
-            setattr(cls, attr_name, make_property(property_name))
+            setattr(cls, attr_name, _make_attr_property(property_name))
 
         cached_properties: set[str] = namespace["_CachedProperties__cached_properties"]
         seen_props: set[str] = set()  # Keep track of properties which have been handled
@@ -412,8 +422,9 @@ class CachedProperties(type):
                 if property_name in seen_props:
                     continue
                 attr_name = f"_attr_{property_name}"
-                # Check if an _attr_ class attribute exits. We check __dict__ here because
-                # we don't care about _attr_ class attributes in parents.
+                # Check if an _attr_ class attribute exists.
+                # We check __dict__ here because we don't care
+                # about _attr_ class attributes in parents.
                 if (attr_name) not in cls.__dict__:
                     continue
                 wrap_attr(cls, property_name)
@@ -524,7 +535,7 @@ class Entity(
     _removed_from_registry: bool = False
 
     # The device entry for this entity
-    device_entry: dr.DeviceEntry | None = None
+    device_entry: dr.AnyDeviceEntry | None = None
 
     # Cached friendly name as (original_name, computed_friendly_name)
     # Invalidated on relevant registry changes
@@ -570,7 +581,7 @@ class Entity(
     _attr_available: bool = True
     _attr_capability_attributes: dict[str, Any] | None = None
     _attr_device_class: str | None
-    _attr_device_info: DeviceInfo | None = None
+    _attr_device_info: DeviceInfo | ChildDeviceInfo | None = None
     _attr_entity_category: EntityCategory | None
     _attr_has_entity_name: bool
     _attr_entity_picture: str | None = None
@@ -588,6 +599,7 @@ class Entity(
     _attr_unique_id: str | None = None
     _attr_unit_of_measurement: str | None
 
+    @override
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Initialize an Entity subclass."""
         super().__init_subclass__(**kwargs)
@@ -731,7 +743,8 @@ class Entity(
                 return device_class_name
             return description_name
 
-        # The entity has no name set by _attr_name, translation_key or entity_description
+        # The entity has no name set by _attr_name, translation_key
+        # or entity_description
         # Check if the entity should be named by its device class
         if self._default_to_device_class_name():
             return device_class_name
@@ -821,7 +834,7 @@ class Entity(
         return None
 
     @cached_property
-    def device_info(self) -> DeviceInfo | None:
+    def device_info(self) -> DeviceInfo | ChildDeviceInfo | None:
         """Return device specific attributes.
 
         Implemented by platform classes.
@@ -1102,7 +1115,9 @@ class Entity(
         capability_attr = self.capability_attributes
         if self.__group is not None:
             capability_attr = capability_attr.copy() if capability_attr else {}
-            capability_attr[ATTR_GROUP_ENTITIES] = self.__group.member_entity_ids.copy()
+            capability_attr[EntityCapabilityAttribute.GROUP_ENTITIES] = (
+                self.__group.member_entity_ids.copy()
+            )
 
         attr = capability_attr.copy() if capability_attr else {}
 
@@ -1115,25 +1130,25 @@ class Entity(
                 attr |= extra_state_attributes
 
         if (unit_of_measurement := self.unit_of_measurement) is not None:
-            attr[ATTR_UNIT_OF_MEASUREMENT] = unit_of_measurement
+            attr[EntityStateAttribute.UNIT_OF_MEASUREMENT] = unit_of_measurement
 
         if assumed_state := self.assumed_state:
-            attr[ATTR_ASSUMED_STATE] = assumed_state
+            attr[EntityStateAttribute.ASSUMED_STATE] = assumed_state
 
         if (attribution := self.attribution) is not None:
-            attr[ATTR_ATTRIBUTION] = attribution
+            attr[EntityStateAttribute.ATTRIBUTION] = attribution
 
         original_device_class = self.device_class
         if (
             device_class := (entry and entry.device_class) or original_device_class
         ) is not None:
-            attr[ATTR_DEVICE_CLASS] = str(device_class)
+            attr[EntityStateAttribute.DEVICE_CLASS] = str(device_class)
 
         if (entity_picture := self.entity_picture) is not None:
-            attr[ATTR_ENTITY_PICTURE] = entity_picture
+            attr[EntityStateAttribute.ENTITY_PICTURE] = entity_picture
 
         if (icon := (entry and entry.icon) or self.icon) is not None:
-            attr[ATTR_ICON] = icon
+            attr[EntityStateAttribute.ICON] = icon
 
         original_name = self.name
         if original_name is UNDEFINED:
@@ -1149,16 +1164,16 @@ class Entity(
             if entry is None:
                 name = original_name
             else:
-                name = er.async_get_full_entity_name(
+                name = er.async_get_legacy_friendly_name(
                     self.hass, entry, original_name=original_name
                 )
             self._cached_friendly_name = (original_name, name)
 
         if name:
-            attr[ATTR_FRIENDLY_NAME] = name
+            attr[EntityStateAttribute.FRIENDLY_NAME] = name
 
         if (supported_features := self.supported_features) is not None:
-            attr[ATTR_SUPPORTED_FEATURES] = supported_features
+            attr[EntityStateAttribute.SUPPORTED_FEATURES] = supported_features
 
         return (
             state,
@@ -1184,8 +1199,9 @@ class Entity(
                     self._disabled_reported = True
                     _LOGGER.warning(
                         (
-                            "Entity %s is incorrectly being triggered for updates while it"
-                            " is disabled. This is a bug in the %s integration"
+                            "Entity %s is incorrectly being triggered"
+                            " for updates while it is disabled."
+                            " This is a bug in the %s integration"
                         ),
                         self.entity_id,
                         self.platform.platform_name,
@@ -1204,8 +1220,9 @@ class Entity(
         time_now = timer()
 
         if entry := self.registry_entry:
-            # Make sure capabilities and other data in the entity registry are up to date.
-            # Capabilities include capability attributes, device class and supported features.
+            # Make sure capabilities and other data in the entity
+            # registry are up to date. Capabilities include capability
+            # attributes, device class and supported features.
             supported_features = supported_features or 0
             if (
                 capabilities != entry.capabilities
@@ -1455,7 +1472,7 @@ class Entity(
         except BaseException as ex:
             self.__remove_future.set_exception(ex)
             raise
-        finally:
+        else:
             self.__remove_future.set_result(None)
 
     @final
@@ -1486,19 +1503,48 @@ class Entity(
             #
             and not self._removed_from_registry
         ):
-            # Set the entity's state will to unavailable + ATTR_RESTORED: True
+            # Set the entity's state will to unavailable and
+            # EntityStateAttribute.RESTORED: True
             self.registry_entry.write_unavailable_state(self.hass)
         else:
             self.hass.states.async_remove(self.entity_id, context=self._context)
 
+    async def async_prepare_to_add_to_hass(self) -> None:
+        """Run before the entity is added to hass.
+
+        Called on every add attempt, before the platform processes the entity
+        registry and before its state is written, including for adds which
+        will be aborted, e.g. because the entity is disabled. Adding may not
+        complete; register cleanup with async_on_remove.
+
+        To be extended by integrations.
+        """
+
     async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added to hass.
+        """Run when the entity has been added to hass.
+
+        Called as the last step of a successful add: after the entity has its
+        entity_id (and its registry entry, if it has a unique_id) and immediately
+        before its state is written for the first time. Use it to subscribe to
+        events, register update listeners and fetch initial data.
+
+        Not called when adding the entity is aborted, e.g. because the entity is
+        disabled or its entity_id or unique_id collides with an existing entity.
 
         To be extended by integrations.
         """
 
     async def async_will_remove_from_hass(self) -> None:
-        """Run when entity will be removed from hass.
+        """Run when the entity is about to be removed from hass.
+
+        The counterpart to async_added_to_hass: called when the entity is removed
+        for an entity that was successfully added. Use it to undo work done in
+        async_added_to_hass, e.g. unsubscribe from events or release resources.
+
+        Not called when adding the entity is aborted before it finished being
+        added; on that path only the callbacks registered with async_on_remove
+        run. Register cleanup for anything set up before the add completed with
+        async_on_remove so it runs on both an aborted add and a normal removal.
 
         To be extended by integrations.
         """
@@ -1609,6 +1655,8 @@ class Entity(
 
         if device_id := registry_entry.device_id:
             self.device_entry = dr.async_get(self.hass).async_get(device_id)
+        else:
+            self.device_entry = None
 
         if registry_entry.disabled:
             await self.async_remove()
@@ -1678,6 +1726,7 @@ class Entity(
         ):
             self.async_on_remove(self._async_unsubscribe_device_updates)
 
+    @override
     def __repr__(self) -> str:
         """Return the representation.
 
@@ -1726,6 +1775,7 @@ class ToggleEntity(
 
     @property
     @final
+    @override
     def state(self) -> Literal["on", "off"] | None:
         """Return the state."""
         if (is_on := self.is_on) is None:

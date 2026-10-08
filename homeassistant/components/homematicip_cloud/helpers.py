@@ -1,7 +1,5 @@
 """Helper functions for Homematicip Cloud Integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable, Coroutine
 from functools import wraps
 import json
@@ -46,7 +44,9 @@ def handle_errors[_HomematicipGenericEntityT: HomematicipGenericEntity, **_P](
                 json.dumps(result),
             )
             raise HomeAssistantError(
-                f"Error while execute function {func.__name__}: {result.get('errorCode')}. See log for more information."
+                f"Error while execute function {func.__name__}:"
+                f" {result.get('errorCode')}."
+                " See log for more information."
             )
 
     return inner
@@ -59,6 +59,14 @@ def get_channels_from_device(device: Device, channel_type: FunctionalChannelType
         for ch in device.functionalChannels
         if ch.functionalChannelType == channel_type
     ]
+
+
+def get_channel_index_by_type(
+    device: Device, channel_type: FunctionalChannelType
+) -> int | None:
+    """Return the index of the device's first channel of the given type."""
+    channels = get_channels_from_device(device, channel_type)
+    return channels[0].index if channels else None
 
 
 def smoke_detector_channel_data_exists(device: Device, field: str) -> bool:

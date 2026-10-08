@@ -155,6 +155,86 @@ async def test_user_adds_full_device(hass: HomeAssistant) -> None:
     }
 
 
+@pytest.mark.usefixtures("mrp_device")
+async def test_user_pair_leading_zero_pin(
+    hass: HomeAssistant, pairing: AsyncMock
+) -> None:
+    """Test that a pairing PIN with a leading zero is passed through as a string."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"device_input": "MRP Device"},
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "pair_with_pin"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"pin": "0123"}
+    )
+    assert pairing.handler.pin_code == "0123"
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.usefixtures("mrp_device", "pairing")
+async def test_user_adds_previously_ignored_device(hass: HomeAssistant) -> None:
+    """Test adding a device that was ignored before creates an entry."""
+    MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="mrpid",
+        source=config_entries.SOURCE_IGNORE,
+    ).add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"device_input": "MRP Device"},
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"pin": "1111"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+    entries = hass.config_entries.async_entries(DOMAIN, include_ignore=True)
+    assert len(entries) == 1
+    assert entries[0].source == config_entries.SOURCE_USER
+
+
+@pytest.mark.usefixtures("mrp_device")
+@pytest.mark.parametrize("invalid_pin", ["abcd", "12ab", "١٢٣٤", "123\n"])
+async def test_user_pair_non_numeric_pin(
+    hass: HomeAssistant, pairing: AsyncMock, invalid_pin: str
+) -> None:
+    """Test that a non-numeric PIN is rejected at the form."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"device_input": "MRP Device"},
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "pair_with_pin"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"pin": invalid_pin}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"pin": "invalid_pin"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"pin": "0123"}
+    )
+    assert pairing.handler.pin_code == "0123"
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
 @pytest.mark.usefixtures("dmap_device", "dmap_pin", "pairing")
 async def test_user_adds_dmap_device(hass: HomeAssistant) -> None:
     """Test adding device with only DMAP service."""
@@ -211,7 +291,7 @@ async def test_user_adds_dmap_device_failed(
     assert result2["reason"] == "device_did_not_pair"
 
 
-@pytest.mark.usefixtures("dmap_device_with_credentials", "mock_scan")
+@pytest.mark.usefixtures("dmap_device_with_credentials")
 async def test_user_adds_device_with_ip_filter(hass: HomeAssistant) -> None:
     """Test add device filtering by IP."""
     result = await hass.config_entries.flow.async_init(
@@ -273,7 +353,7 @@ async def test_user_adds_device_by_ip_uses_unicast_scan(
 @pytest.mark.usefixtures("mrp_device")
 async def test_user_adds_existing_device(hass: HomeAssistant) -> None:
     """Test that it is not possible to add existing device."""
-    MockConfigEntry(domain="apple_tv", unique_id="mrpid").add_to_hass(hass)
+    MockConfigEntry(domain=DOMAIN, unique_id="mrpid").add_to_hass(hass)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -668,10 +748,10 @@ async def test_zeroconf_add_dmap_device(hass: HomeAssistant) -> None:
 async def test_zeroconf_ip_change(hass: HomeAssistant, mock_scan: AsyncMock) -> None:
     """Test that the config entry gets updated when the ip changes and reloads."""
     entry = MockConfigEntry(
-        domain="apple_tv", unique_id="mrpid", data={CONF_ADDRESS: "127.0.0.2"}
+        domain=DOMAIN, unique_id="mrpid", data={CONF_ADDRESS: "127.0.0.2"}
     )
     unrelated_entry = MockConfigEntry(
-        domain="apple_tv", unique_id="unrelated", data={CONF_ADDRESS: "127.0.0.2"}
+        domain=DOMAIN, unique_id="unrelated", data={CONF_ADDRESS: "127.0.0.2"}
     )
     unrelated_entry.add_to_hass(hass)
     entry.add_to_hass(hass)
@@ -703,10 +783,10 @@ async def test_zeroconf_ip_change_after_ip_conflict_with_ignored_entry(
 ) -> None:
     """Test that the config entry gets updated when the ip changes and reloads."""
     entry = MockConfigEntry(
-        domain="apple_tv", unique_id="mrpid", data={CONF_ADDRESS: "127.0.0.2"}
+        domain=DOMAIN, unique_id="mrpid", data={CONF_ADDRESS: "127.0.0.2"}
     )
     ignored_entry = MockConfigEntry(
-        domain="apple_tv",
+        domain=DOMAIN,
         unique_id="unrelated",
         data={CONF_ADDRESS: "127.0.0.2"},
         source=config_entries.SOURCE_IGNORE,
@@ -745,12 +825,12 @@ async def test_zeroconf_ip_change_via_secondary_identifier(
     in the config entry are checked
     """
     entry = MockConfigEntry(
-        domain="apple_tv",
+        domain=DOMAIN,
         unique_id="aa:bb:cc:dd:ee:ff",
         data={CONF_IDENTIFIERS: ["mrpid"], CONF_ADDRESS: "127.0.0.2"},
     )
     unrelated_entry = MockConfigEntry(
-        domain="apple_tv", unique_id="unrelated", data={CONF_ADDRESS: "127.0.0.2"}
+        domain=DOMAIN, unique_id="unrelated", data={CONF_ADDRESS: "127.0.0.2"}
     )
     unrelated_entry.add_to_hass(hass)
     entry.add_to_hass(hass)
@@ -787,13 +867,13 @@ async def test_zeroconf_updates_identifiers_for_ignored_entries(
     in the config entry are checked
     """
     entry = MockConfigEntry(
-        domain="apple_tv",
+        domain=DOMAIN,
         unique_id="aa:bb:cc:dd:ee:ff",
         source=config_entries.SOURCE_IGNORE,
         data={CONF_IDENTIFIERS: ["mrpid"], CONF_ADDRESS: "127.0.0.2"},
     )
     unrelated_entry = MockConfigEntry(
-        domain="apple_tv", unique_id="unrelated", data={CONF_ADDRESS: "127.0.0.2"}
+        domain=DOMAIN, unique_id="unrelated", data={CONF_ADDRESS: "127.0.0.2"}
     )
     unrelated_entry.add_to_hass(hass)
     entry.add_to_hass(hass)
@@ -837,7 +917,6 @@ async def test_zeroconf_add_existing_aborts(hass: HomeAssistant) -> None:
     assert result["reason"] == "already_in_progress"
 
 
-@pytest.mark.usefixtures("mock_scan")
 async def test_zeroconf_add_but_device_not_found(hass: HomeAssistant) -> None:
     """Test add device which is not found with another scan."""
     result = await hass.config_entries.flow.async_init(
@@ -850,7 +929,7 @@ async def test_zeroconf_add_but_device_not_found(hass: HomeAssistant) -> None:
 @pytest.mark.usefixtures("dmap_device")
 async def test_zeroconf_add_existing_device(hass: HomeAssistant) -> None:
     """Test add already existing device from zeroconf."""
-    MockConfigEntry(domain="apple_tv", unique_id="dmapid").add_to_hass(hass)
+    MockConfigEntry(domain=DOMAIN, unique_id="dmapid").add_to_hass(hass)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF}, data=DMAP_SERVICE
@@ -1188,7 +1267,7 @@ async def test_reconfigure_update_credentials(
 ) -> None:
     """Test that reconfigure flow updates config entry."""
     config_entry = MockConfigEntry(
-        domain="apple_tv", unique_id="mrpid", data={"identifiers": ["mrpid"]}
+        domain=DOMAIN, unique_id="mrpid", data={"identifiers": ["mrpid"]}
     )
     config_entry.add_to_hass(hass)
 

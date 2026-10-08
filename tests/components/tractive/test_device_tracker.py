@@ -2,12 +2,14 @@
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components.device_tracker import SourceType
-from homeassistant.const import Platform
+from homeassistant.components.tractive.const import DOMAIN
+from homeassistant.const import STATE_UNKNOWN, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from . import init_integration
 
@@ -56,7 +58,9 @@ async def test_source_type_phone(
     await hass.async_block_till_done()
 
     assert (
-        hass.states.get("device_tracker.test_pet_tracker").attributes["source_type"]
+        hass.states.get("device_tracker.tracker_device_id_123").attributes[
+            "source_type"
+        ]
         is SourceType.BLUETOOTH
     )
 
@@ -84,27 +88,66 @@ async def test_source_type_gps(
     await hass.async_block_till_done()
 
     assert (
-        hass.states.get("device_tracker.test_pet_tracker").attributes["source_type"]
+        hass.states.get("device_tracker.tracker_device_id_123").attributes[
+            "source_type"
+        ]
         is SourceType.GPS
     )
 
 
-async def test_device_tracker_with_empty_hw_info(
+async def test_device_tracker_device_assignment(
     hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    device_registry: dr.DeviceRegistry,
     mock_tractive_client: AsyncMock,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test that the device tracker sets up correctly when hw_info is empty."""
-    mock_tractive_client.tracker.return_value.hw_info = AsyncMock(return_value={})
-
+    """Test that the device tracker entity is assigned to the tracker device."""
     with patch(
         "homeassistant.components.tractive.PLATFORMS", [Platform.DEVICE_TRACKER]
     ):
         await init_integration(hass, mock_config_entry)
 
-        mock_tractive_client.send_position_event(mock_config_entry)
-        await hass.async_block_till_done()
+    tracker_device = device_registry.async_get_device_by_identifier(
+        (DOMAIN, "device_id_123"), mock_config_entry.entry_id
+    )
+    assert tracker_device is not None
 
-    state = hass.states.get("device_tracker.test_pet_tracker")
-    assert state is not None
-    assert state.attributes.get("battery_level") is None
+    entry = entity_registry.async_get("device_tracker.tracker_device_id_123")
+    assert entry is not None
+    assert entry.device_id == tracker_device.id
+
+
+@pytest.mark.parametrize(
+    "pos_report",
+    [
+        pytest.param(None, id="none"),
+        pytest.param({}, id="empty"),
+        pytest.param(
+            {"latlong": None, "pos_uncertainty": None, "sensor_used": None},
+            id="no_location",
+        ),
+    ],
+)
+async def test_device_tracker_without_position(
+    hass: HomeAssistant,
+    mock_tractive_client: AsyncMock,
+    mock_config_entry: MockConfigEntry,
+    pos_report: dict[str, None] | None,
+) -> None:
+    """Test a tracker without a position, like a switched off one, is set up."""
+    mock_tractive_client.tracker.return_value.pos_report.return_value = pos_report
+    with patch(
+        "homeassistant.components.tractive.PLATFORMS", [Platform.DEVICE_TRACKER]
+    ):
+        await init_integration(hass, mock_config_entry)
+
+    state = hass.states.get("device_tracker.tracker_device_id_123")
+    assert state
+    assert state.state == STATE_UNKNOWN
+
+    mock_tractive_client.send_position_event(mock_config_entry)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("device_tracker.tracker_device_id_123")
+    assert state.state != STATE_UNKNOWN

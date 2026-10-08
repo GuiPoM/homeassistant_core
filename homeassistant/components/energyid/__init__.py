@@ -1,7 +1,5 @@
 """The EnergyID integration."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 import datetime as dt
 from datetime import timedelta
@@ -12,7 +10,7 @@ from aiohttp import ClientError, ClientResponseError
 from energyid_webhooks.client_v2 import WebhookClient
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import CONF_DEVICE_ID, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import (
     CALLBACK_TYPE,
     Event,
@@ -28,9 +26,9 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
 )
+from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_DEVICE_ID,
     CONF_DEVICE_NAME,
     CONF_ENERGYID_KEY,
     CONF_HA_ENTITY_UUID,
@@ -78,31 +76,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnergyIDConfigEntry) -> 
         is_claimed = await client.authenticate()
     except TimeoutError as err:
         raise ConfigEntryNotReady(
-            f"Timeout authenticating with EnergyID: {err}"
+            translation_domain=DOMAIN,
+            translation_key="auth_timeout",
         ) from err
     except ClientResponseError as err:
         # 401/403 = invalid credentials, trigger reauth
         if err.status in (401, 403):
-            raise ConfigEntryAuthFailed(f"Invalid credentials: {err}") from err
+            raise ConfigEntryAuthFailed(
+                translation_domain=DOMAIN,
+                translation_key="invalid_credentials",
+            ) from err
         # Other HTTP errors are likely temporary
         raise ConfigEntryNotReady(
-            f"HTTP error authenticating with EnergyID: {err}"
+            translation_domain=DOMAIN,
+            translation_key="auth_http_error",
         ) from err
     except ClientError as err:
         # Network/connection errors are temporary
         raise ConfigEntryNotReady(
-            f"Connection error authenticating with EnergyID: {err}"
+            translation_domain=DOMAIN,
+            translation_key="auth_connection_error",
         ) from err
     except Exception as err:
         # Unknown errors - log and retry (safer than forcing reauth)
         _LOGGER.exception("Unexpected error during EnergyID authentication")
         raise ConfigEntryNotReady(
-            f"Unexpected error authenticating with EnergyID: {err}"
+            translation_domain=DOMAIN,
+            translation_key="auth_unexpected_error",
         ) from err
 
     if not is_claimed:
         # Device exists but not claimed = user needs to claim it = auth issue
-        raise ConfigEntryAuthFailed("Device is not claimed. Please re-authenticate.")
+        raise ConfigEntryAuthFailed(
+            translation_domain=DOMAIN,
+            translation_key="device_not_claimed",
+        )
 
     _LOGGER.debug("EnergyID device '%s' authenticated successfully", client.device_name)
 
@@ -198,7 +206,8 @@ def update_listeners(hass: HomeAssistant, entry: EnergyIDConfigEntry) -> None:
         if not hass.states.get(ha_entity_id):
             # Entity exists in registry but is not present in the state machine
             _LOGGER.debug(
-                "Entity %s does not exist in state machine yet, will track when available (mapping to %s)",
+                "Entity %s does not exist in state machine yet,"
+                " will track when available (mapping to %s)",
                 ha_entity_id,
                 energyid_key,
             )
@@ -223,7 +232,7 @@ def update_listeners(hass: HomeAssistant, entry: EnergyIDConfigEntry) -> None:
             ):
                 try:
                     value = float(current_state.state)
-                    timestamp = current_state.last_updated or dt.datetime.now(dt.UTC)
+                    timestamp = current_state.last_updated or dt_util.utcnow()
                     client.get_or_create_sensor(energyid_key).update(value, timestamp)
                 except ValueError, TypeError:
                     _LOGGER.debug(
@@ -330,7 +339,8 @@ def _async_handle_state_change(
             "Updating EnergyID sensor %s with value %s", energyid_key, new_state.state
         )
     else:
-        # Entity not mapped yet - check if it should be (handles late-appearing entities)
+        # Entity not mapped yet - check if it should be
+        # (handles late-appearing entities)
         ent_reg = er.async_get(hass)
         for subentry in entry.subentries.values():
             entity_uuid = subentry.data.get(CONF_HA_ENTITY_UUID)
@@ -346,7 +356,8 @@ def _async_handle_state_change(
                 runtime_data.mappings[entity_id] = energyid_key
                 client.get_or_create_sensor(energyid_key)
                 _LOGGER.debug(
-                    "Entity %s now available in state machine, adding to mappings (key: %s)",
+                    "Entity %s now available in state machine,"
+                    " adding to mappings (key: %s)",
                     entity_id,
                     energyid_key,
                 )

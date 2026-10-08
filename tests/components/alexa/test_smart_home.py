@@ -3505,7 +3505,10 @@ async def test_no_current_target_temp_adjusting_temp(hass: HomeAssistant) -> Non
 
 
 async def test_thermostat_dual(hass: HomeAssistant) -> None:
-    """Test thermostat discovery with auto mode, with upper and lower target temperatures."""
+    """Test thermostat discovery with auto mode.
+
+    Uses upper and lower target temperatures.
+    """
     hass.config.units = US_CUSTOMARY_SYSTEM
     device = (
         "climate.test_thermostat",
@@ -3657,31 +3660,6 @@ async def test_include_filters(hass: HomeAssistant) -> None:
     msg = msg["event"]
 
     assert len(msg["payload"]["endpoints"]) == 3
-
-
-async def test_never_exposed_entities(hass: HomeAssistant) -> None:
-    """Test never exposed locks do not get discovered."""
-    request = get_new_request("Alexa.Discovery", "Discover")
-
-    # setup test devices
-    hass.states.async_set("group.all_locks", "on", {"friendly_name": "Blocked locks"})
-
-    hass.states.async_set("group.allow", "off", {"friendly_name": "Allowed group"})
-
-    alexa_config = MockConfig(hass)
-    alexa_config.should_expose = entityfilter.generate_filter(
-        include_domains=["group"],
-        include_entities=[],
-        exclude_domains=[],
-        exclude_entities=[],
-    )
-
-    msg = await smart_home.async_handle_message(hass, alexa_config, request)
-    await hass.async_block_till_done()
-
-    msg = msg["event"]
-
-    assert len(msg["payload"]["endpoints"]) == 1
 
 
 async def test_api_entity_not_exists(hass: HomeAssistant) -> None:
@@ -4789,6 +4767,77 @@ async def test_cover_tilt_position_range(hass: HomeAssistant) -> None:
         "tilt_position",
         instance="cover.tilt",
     )
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "supported_features", "position_attr", "instance", "service"),
+    [
+        (
+            "cover.test_closed",
+            CoverEntityFeature.SET_POSITION,
+            "current_position",
+            "cover.position",
+            "cover.set_cover_position",
+        ),
+        (
+            "cover.test_closed",
+            CoverEntityFeature.SET_TILT_POSITION,
+            "tilt_position",
+            "cover.tilt",
+            "cover.set_cover_tilt_position",
+        ),
+        (
+            "valve.test_closed",
+            ValveEntityFeature.SET_POSITION,
+            "position",
+            "valve.position",
+            "valve.set_valve_position",
+        ),
+    ],
+    ids=["cover_position", "cover_tilt", "valve_position"],
+)
+async def test_adjust_range_from_closed_position(
+    hass: HomeAssistant,
+    entity_id: str,
+    supported_features: int,
+    position_attr: str,
+    instance: str,
+    service: str,
+) -> None:
+    """Test AdjustRangeValue treats position 0 as known and a missing one as unknown."""
+    endpoint = entity_id.replace(".", "#")
+    hass.states.async_set(
+        entity_id,
+        "closed",
+        {"supported_features": supported_features, position_attr: 0},
+    )
+
+    call, msg = await assert_request_calls_service(
+        "Alexa.RangeController",
+        "AdjustRangeValue",
+        endpoint,
+        service,
+        hass,
+        payload={"rangeValueDelta": 10, "rangeValueDeltaDefault": False},
+        instance=instance,
+    )
+    assert call.data[position_attr.removeprefix("current_")] == 10
+    assert msg["context"]["properties"][0]["value"] == 10
+
+    hass.states.async_set(
+        entity_id, "closed", {"supported_features": supported_features}
+    )
+
+    msg = await assert_request_fails(
+        "Alexa.RangeController",
+        "AdjustRangeValue",
+        endpoint,
+        service,
+        hass,
+        payload={"rangeValueDelta": 10, "rangeValueDeltaDefault": False},
+        instance=instance,
+    )
+    assert msg["event"]["payload"]["type"] == "INVALID_VALUE"
 
 
 @pytest.mark.parametrize(

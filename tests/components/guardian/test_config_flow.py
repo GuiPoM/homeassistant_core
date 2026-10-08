@@ -28,20 +28,39 @@ pytestmark = pytest.mark.usefixtures("mock_setup_entry")
 async def test_duplicate_error(hass: HomeAssistant, config: dict[str, Any]) -> None:
     """Test that errors are shown when duplicate entries are added."""
     result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": SOURCE_USER}, data=config
+        DOMAIN,
+        context={"source": SOURCE_USER},
     )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input=config,
+    )
+
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
 
 
 async def test_connect_error(hass: HomeAssistant, config: dict[str, Any]) -> None:
     """Test that the config entry errors out if the device cannot connect."""
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_USER},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {}
+
     with patch(
         "aioguardian.client.Client.connect",
         side_effect=GuardianError,
     ):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": SOURCE_USER}, data=config
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=config
         )
         assert result["type"] is FlowResultType.FORM
         assert result["errors"] == {CONF_IP_ADDRESS: "cannot_connect"}
@@ -67,9 +86,11 @@ async def test_step_user(hass: HomeAssistant, config: dict[str, Any]) -> None:
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
+    assert result["errors"] == {}
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": SOURCE_USER}, data=config
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input=config,
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "ABCDEF123456"
@@ -185,7 +206,7 @@ async def test_step_dhcp_already_in_progress(hass: HomeAssistant) -> None:
 
 
 async def test_step_dhcp_already_setup_match_mac(hass: HomeAssistant) -> None:
-    """Test we abort if the device is already setup with matching unique id and discovered via DHCP."""
+    """Test we abort if already setup with matching unique id via DHCP."""
     entry = MockConfigEntry(
         domain=DOMAIN, data={CONF_IP_ADDRESS: "1.2.3.4"}, unique_id="guardian_ABCD"
     )
@@ -205,7 +226,7 @@ async def test_step_dhcp_already_setup_match_mac(hass: HomeAssistant) -> None:
 
 
 async def test_step_dhcp_already_setup_match_ip(hass: HomeAssistant) -> None:
-    """Test we abort if the device is already setup with matching ip and discovered via DHCP."""
+    """Test we abort if already setup with matching ip via DHCP."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_IP_ADDRESS: "192.168.1.100"},
